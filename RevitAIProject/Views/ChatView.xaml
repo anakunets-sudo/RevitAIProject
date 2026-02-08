@@ -1,0 +1,42 @@
+﻿<Page x:Class="RevitAIProject.Views.ChatView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" 
+      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+      xmlns:vm="clr-namespace:RevitAIProject.ViewModels" 
+      xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:conv="clr-namespace:RevitAIProject.Converters"
+      xmlns:local="clr-namespace:RevitAIProject.Views">
+
+    <Page.Resources>
+        <ResourceDictionary>
+            <vm:ViewModelLocator x:Key="Locator" />
+            <conv:BooleanToVisibilityConverter x:Key="BoolToVis" />
+        </ResourceDictionary>
+    </Page.Resources>
+    
+    <Grid DataContext="{Binding ChatViewModel, Source={StaticResource Locator}}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <ScrollViewer Name="ChatScroll" Grid.Row="0" VerticalScrollBarVisibility="Auto" Margin="5">
+            <StackPanel>
+                <TextBox TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" FontSize="12" FontFamily="Consolas" Background="#F9F9F9" Padding="10" Text="{Binding ChatHistory, Mode=OneWay}" />
+                <TextBlock Text="ИИ думает..." FontStyle="Italic" Foreground="#FF808080" Margin="10,5" Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
+            </StackPanel>
+        </ScrollViewer>
+        <StackPanel Grid.Row="1" Margin="10">
+            <Separator Margin="0,0,0,10" Background="#EEE" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="80" />
+                </Grid.ColumnDefinitions>
+                <TextBox Height="30" VerticalContentAlignment="Center" Padding="5,0" Text="{Binding UserInput, UpdateSourceTrigger=PropertyChanged}">
+                    <UIElement.InputBindings>
+                        <KeyBinding Key="Enter" Command="{Binding SendCommand}" />
+                    </UIElement.InputBindings>
+                </TextBox>
+                <Button Grid.Column="1" Content="Send" Margin="5,0,0,0" Background="#2196F3" Foreground="#FFFFFFFF" BorderThickness="0" Command="{Binding SendCommand}" />
+            </Grid>
+        </StackPanel>
+    </Grid>
+</Page>
