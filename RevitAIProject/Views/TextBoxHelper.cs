@@ -23,31 +23,20 @@ namespace RevitAIProject.Views
 
         private static void OnInsertTextChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
-            if (d is TextBox textBox && e.NewValue is string voiceText && !string.IsNullOrWhiteSpace(voiceText))
+            if (d is TextBox textBox && e.NewValue is string voiceText)
             {
-                // Если поле пустое — просто заменяем весь текст
-                if (string.IsNullOrEmpty(textBox.Text))
-                {
-                    textBox.Text = voiceText;
-                    textBox.SelectionStart = textBox.Text.Length;
-                }
-                // Если курсор где-то внутри текста — вставляем
-                else
-                {
-                    int start = textBox.SelectionStart;
-                    string currentText = textBox.Text;
+                int start = textBox.SelectionStart;
+                string currentText = textBox.Text ?? "";
 
-                    // Логика умных пробелов
-                    string toInsert = voiceText;
-                    if (start > 0 && currentText[start - 1] != ' ') toInsert = " " + toInsert;
-                    if (start < currentText.Length && currentText[start] != ' ') toInsert += " ";
+                // Вставляем текст в позицию курсора
+                string newText = currentText.Insert(start, voiceText);
 
-                    textBox.Text = currentText.Insert(start, toInsert);
-                    textBox.SelectionStart = start + toInsert.Length;
-                }
+                textBox.Text = newText;
+                // Переставляем курсор в конец вставленного текста
+                textBox.SelectionStart = start + voiceText.Length;
 
                 textBox.Focus();
-                SetInsertText(textBox, null); // Сброс триггера
+                SetInsertText(textBox, null); // Сбрасываем триггер
             }
         }
 

@@ -47,23 +47,33 @@ namespace RevitAIProject.ViewModels
             ChatHistory = "Система: Ожидание вашего запроса...\n";
 
             _voice.OnPartialTextReceived += (json) => {
-                var part = JsonConvert.DeserializeObject<dynamic>(json);
-                string text = part?.partial;
-                if (string.IsNullOrWhiteSpace(text)) return;
-
-                // Используем BeginInvoke, чтобы не ждать UI и не вешать потоки
-                _dispatcher.Invoke(() => {
-                    UserInput = text;
-                });
+                var data = JsonConvert.DeserializeObject<dynamic>(json);
+                string text = data?.partial;
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    _dispatcher.Invoke(() => { UserInput = text; });
+                }
             };
 
             _voice.OnTextRecognized += (json) => {
-                var res = JsonConvert.DeserializeObject<dynamic>(json);
-                string text = res?.text;
-                _dispatcher.Invoke(() => {
-                    if (!string.IsNullOrWhiteSpace(text)) VoiceInsert = text;
-                    IsRecording = false;
-                });
+                // Десериализуем JSON от Vosk
+                var data = JsonConvert.DeserializeObject<dynamic>(json);
+                string recognizedText = data?.text;
+
+                if (!string.IsNullOrWhiteSpace(recognizedText))
+                {
+                    _dispatcher.Invoke(() => {
+                        // КРИТИЧНО: Используем VoiceInsert вместо UserInput
+                        // Это активирует логику в TextBoxHelper.OnInsertTextChanged
+                        VoiceInsert = recognizedText;
+
+                        IsRecording = false;
+                    });
+                }
+                else
+                {
+                    _dispatcher.Invoke(() => IsRecording = false);
+                }
             };
 
             RecordVoiceCommand = new RelayCommand(() => { OnRecordVoice(); });
