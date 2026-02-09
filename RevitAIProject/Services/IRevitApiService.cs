@@ -1,4 +1,7 @@
-﻿using System;
+﻿using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+using RevitAIProject.Actions;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -8,17 +11,16 @@ namespace RevitAIProject.Services
 {
     public interface IRevitApiService
     {
-        // Событие для передачи текстовых уведомлений в UI
         event Action<string, RevitMessageType> OnMessageReported;
 
-        // Метод для выполнения произвольного действия в потоке Revit
-        void Run(Action<Autodesk.Revit.UI.UIApplication> action);
+        void Report(string message, RevitMessageType messageType);
 
-        // Абстрактный метод для будущей реализации логики уклонов
-        void ApplyRoofSlopes(double slopePercent);
+        // Это наш "блокнот" для связи имен ИИ с реальными ID Revit
+        Dictionary<string, ElementId> Variables { get; }
 
-        void CreateFloorByWalls(string WallTypeFilter, double ThicknessMm, double OffsetMm);
+        void AddToQueue(Action<IActionContext> task);
 
-        // ... другие будущие команды (например, BuildWall, PlaceDrain)
+        // Универсальный метод для выполнения кода внутри транзакции
+        void Raise();
     }
 }

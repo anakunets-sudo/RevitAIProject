@@ -7,6 +7,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace RevitAIProject.Services
@@ -21,111 +22,134 @@ namespace RevitAIProject.Services
             _httpClient = new HttpClient();
             _httpClient.Timeout = TimeSpan.FromMinutes(5);
         }
-
-        /*
-        /// <summary>
-        /// Формирует жесткие инструкции для Qwen 2.5 по генерации JSON для Revit
-        /// </summary>
-        private string GetSystemInstructions()
-        {
-            StringBuilder sb = new StringBuilder();
-            sb.Append("### ROLE: Revit BIM Assistant. ");
-            sb.Append("### TASK: Translate user requests into JSON actions for Revit. ");
-            sb.Append("### OUTPUT FORMAT: Return ONLY JSON object: { \"message\": \"text\", \"actions\": [ { \"name\": \"string\", ... } ] }. ");
-
-            sb.Append("### AVAILABLE COMMANDS:\n");
-            sb.Append(GetDynamicCommandsDescription()); // ЗДЕСЬ МАГИЯ: список строится сам
-
-            sb.Append("\n### RULES: Convert all units to millimeters (mm). If unknown, return empty actions.");
-
-            sb.Append("### ОБРАБОТКА НЕОПРЕДЕЛЕННОСТИ: ");
-            sb.Append("Если в запросе недостаточно данных (например, 'как у соседа'), ");
-            sb.Append("в поле 'message' вежливо объясни, каких именно данных не хватает ");
-            sb.Append("(например, числового значения уклона или выбора стен). ");
-            sb.Append("НИКОГДА не повторяй запрос пользователя дословно. ");
-            sb.Append("Если команда невыполнима, верни пустой список 'actions': []. ");
-
-            return sb.ToString();
-        }*/
-
-        
         private string GetSystemInstructions()
         {
             StringBuilder sb = new StringBuilder();
 
-            // 1. Определение роли и основной задачи
+            // 1. ROLE & CORE TASK
             sb.Append("### ROLE: Revit BIM Assistant. ");
-            sb.Append("### TASK: Translate user requests into JSON actions for Autodesk Revit API. ");
+            sb.Append("### TASK: Translate user requests into a JSON array of Revit API actions. ");
+            sb.Append("### MULTI-ACTION RULE: If the user asks for multiple steps (e.g., 'create and move'), " +
+                      "return ALL steps in the 'actions' array in the correct execution order. ");
 
-            // 2. Жесткое правило по языку (Зеркальный ответ)
-            sb.Append("### LANGUAGE RULE: Detect the user's language. ");
-            sb.Append("Always write the 'message' field in the SAME language used by the user. ");
-            sb.Append("If the user asks in Russian, answer in Russian. If in English, answer in English. ");
+            // 2. LANGUAGE & FORMAT
+            sb.Append("### RULES: ");
+            sb.Append("1. Respond ONLY with a raw JSON object. No markdown, no explanations. ");
+            sb.Append("2. Detect user language. Write 'message' in the SAME language as the user. ");
+            sb.Append("3. Use EXACT numbers from the request. If units (mm, in, ft) are provided, include them in the value string (e.g., '500mm'). ");
 
-            // 3. Формат вывода
-            sb.Append("### OUTPUT FORMAT: Return ONLY a valid JSON object. No markdown, no extra text. ");
-            sb.Append("Schema: { \"message\": \"text\", \"actions\": [ { \"name\": \"string\", \"params...\" } ] }. ");
+            // 3. VARIABLE SYSTEM ($) - Связка через TargetAiName и AssignAiName
+            sb.Append("### VARIABLE SYSTEM ($): ");
+            sb.Append("1. To label a NEW element for later use, invent a name starting with '$' (e.g., '$f1') and put it in 'assign_ai_name'. ");
+            sb.Append("2. To refer to that element in later actions, put its name (e.g., '$f1') in 'target_ai_name'. ");
+            sb.Append("3. SELECTION: If the user refers to 'this', 'selected' or 'current', leave 'target_ai_name' EMPTY to use the current Revit selection. ");
 
-            // 4. Описание доступных команд (Discovery)
+            // 4. COMMAND DISCOVERY (Reflection)
             sb.Append("### AVAILABLE COMMANDS: ");
-            sb.Append(GetDynamicCommandsDescription()); // Автоматический список из ваших классов Actions
+            sb.Append(GetDynamicCommandsDescription());
 
-            // 5. Правила обработки данных и единиц измерения
-            sb.Append("### RULES: 1. Convert all units (meters, centimeters) to millimeters (mm) and use them for the 'thickness' and 'offset' parameters. Always extract numbers.");
-            sb.Append("2. For 'CreateFloor', if thickness or offset is not specified, ask the user to provide them in their language. ");
-
-            // 6. Обработка неопределенности (Ваш запрос про "соседа" и "не понял")
-            sb.Append("### UNCERTAINTY & ERRORS: If the request is unclear, missing data (like 'neighbor's floor'), ");
-            sb.Append("or the command is unknown, provide a helpful and polite explanation in the user's language ");
-            sb.Append("in the 'message' field and return an empty 'actions': [] list. ");
-            sb.Append("NEVER repeat the user's prompt as the answer. ");
-
-            // 7. Примеры для обучения (Few-Shot)
-            sb.Append("### EXAMPLES: ");
-            sb.Append("User: 'Плита 200мм' -> { \"message\": \"Создаю перекрытие толщиной 200мм...\", \"actions\": [{\"name\": \"CreateFloor\", \"thickness\": 200}] }. ");
-            sb.Append("User: 'Make it 300' -> { \"message\": \"Applying 300mm thickness...\", \"actions\": [{\"name\": \"CreateFloor\", \"thickness\": 300}] }. ");
-            sb.Append("User: 'Как у соседа' -> { \"message\": \"Извините, я не вижу параметры соседа. Укажите толщину плиты в мм.\", \"actions\": [] }. ");
+            // 5. FINAL OUTPUT SCHEMA
+            sb.Append("### OUTPUT FORMAT: Return ONLY valid JSON. ");
+            sb.Append("Schema: { \"message\": \"User description\", \"actions\": [ { \"name\": \"ActionName\", \"Parameters\": { \"key\": \"string\" } } ] }. ");
 
             return sb.ToString();
-        }
+        }        
 
         private string GetExamples()
         {
-            return "User: 'Плита 300' -> {\"message\": \"Создаю перекрытие 300мм...\", \"actions\": [{\"name\": \"CreateFloor\", \"thickness\": 300}]}\n" +
-                   "User: 'Make it 200' -> {\"message\": \"Setting thickness to 200mm...\", \"actions\": [{\"name\": \"CreateFloor\", \"thickness\": 200}]}\n" +
-                   "User: 'Сосед' -> {\"message\": \"Не вижу параметров соседа. Укажите толщину.\", \"actions\": []}";
+            StringBuilder sb = new StringBuilder();
+
+            // Пример 1: Создание с именованием ($id)
+            sb.AppendLine("User: 'Плита со смещением 500 дюймов'");
+            sb.AppendLine("Response: { \"message\": \"Создаю перекрытие ($f1) со смещением 500 дюймов.\", \"actions\": [ { \"name\": \"CreateFloor\", \"Parameters\": { \"assign_ai_name\": \"$f1\", \"offset\": \"500in\" } } ] }");
+
+            // Пример 2: Цепочка (Создание + Перемещение)
+            sb.AppendLine("User: 'Создай пол и сдвинь его влево на 1 метр'");
+            sb.AppendLine("Response: { \"message\": \"Создаю пол ($f1) и сдвигаю его на 1000мм влево.\", \"actions\": [ " +
+                          "{ \"name\": \"CreateFloor\", \"Parameters\": { \"assign_ai_name\": \"$f1\", \"offset\": \"0mm\" } }, " +
+                          "{ \"name\": \"MoveElement\", \"Parameters\": { \"target_ai_name\": \"$f1\", \"dx\": -1000мм, \"dy\": 0, \"dz\": 0 } } ] }");
+
+            // Пример 3: Работа с выделением (пустой target_ai_name)
+            sb.AppendLine("User: 'Сдвинь это вверх на 200мм'");
+            sb.AppendLine("Response: { \"message\": \"Сдвигаю выбранный элемент на 200мм вверх.\", \"actions\": [ { \"name\": \"MoveElement\", \"Parameters\": { \"target_ai_name\": \"\", \"dx\": 0, \"dy\": 200, \"dz\": 0 } } ] }");
+
+            // Пример 3: Работа с выделением (пустой target_ai_name)
+            sb.AppendLine("User: 'Сдвинь это вверх по уровню на 200см'");
+            sb.AppendLine("Response: { \"message\": \"Сдвигаю выбранный элемент на 200см по уровню вверх.\", \"actions\": [ { \"name\": \"MoveElement\", \"Parameters\": { \"target_ai_name\": \"\", \"dx\": 0, \"dy\": 200см, \"dz\": 0 } } ] }");
+
+            return sb.ToString();
         }
 
+        public async Task<AiResponse> GetAiResponseAsync(string userMessage, CancellationToken ct)
+        {
+            try
+            {
+                StringBuilder fullPrompt = new StringBuilder();
+
+                fullPrompt.Append(GetSystemInstructions());
+                fullPrompt.Append("\n\n### EXAMPLES:\n");
+                fullPrompt.Append(GetExamples());
+                fullPrompt.Append("\n\n### USER REQUEST:\n");
+                fullPrompt.Append(userMessage);
+
+                var requestData = new
+                {
+                    model = "qwen2.5:7b",
+                    prompt = fullPrompt.ToString(),
+                    format = "json",
+                    stream = false,
+                    options = new { temperature = 0.0 }
+                };
+
+                string jsonPayload = JsonConvert.SerializeObject(requestData);
+                StringContent content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+
+                // Передаем токен отмены в POST запрос
+                HttpResponseMessage response = await _httpClient.PostAsync(OllamaUrl, content, ct);
+                response.EnsureSuccessStatusCode();
+
+                // Передаем токен в чтение контента
+                string responseBody = await response.Content.ReadAsStringAsync();
+
+                JObject ollamaJson = JObject.Parse(responseBody);
+                string rawAiResponse = ollamaJson["response"]?.ToString() ?? "{}";
+
+                // В продакшене MessageBox лучше убрать или вызывать через диспетчер, 
+                // так как это может заблокировать поток.
+                 System.Windows.MessageBox.Show(rawAiResponse, "AI Raw Output");
+
+                return ParseToAiResponse(rawAiResponse);
+            }
+            catch (OperationCanceledException)
+            {
+                // Возвращаем пустой ответ или уведомление о прерывании
+                return new AiResponse
+                {
+                    Message = "Генерация была прервана пользователем.",
+                    Actions = new List<IRevitAction>()
+                };
+            }
+            catch (Exception ex)
+            {
+                return new AiResponse
+                {
+                    Message = $"Ошибка при обращении к ИИ: {ex.Message}",
+                    Actions = new List<IRevitAction>()
+                };
+            }
+        }
+
+        /*
         public async Task<AiResponse> GetAiResponseAsync(string userMessage)
         {
             try
             {
-                /*
-                // Подготовка данных запроса для Ollama
-                var requestData = new
-                {
-                    model = "qwen2.5:7b",
-                    prompt = GetSystemInstructions() + "\n\nUser Request: " + userMessage,
-                    format = "json", // Заставляет Qwen возвращать валидный JSON
-                    stream = false,
-                    options = new
-                    {
-                        temperature = 0.1 // Снижаем случайность для точных параметров
-                    }
-                };*/
-                
-                // Склеиваем всё в один большой "контекст" для модели
                 StringBuilder fullPrompt = new StringBuilder();
 
-                // 1. Сначала инструкции (Роль, Команды, Язык)
                 fullPrompt.Append(GetSystemInstructions());
-
-                // 2. Затем примеры (Few-Shot обучение)
-                fullPrompt.Append("\n\n### EXAMPLES OF CORRECT RESPONSES:\n");
+                fullPrompt.Append("\n\n### EXAMPLES:\n");
                 fullPrompt.Append(GetExamples());
-
-                // 3. И в конце сам запрос пользователя
-                fullPrompt.Append("\n\n### CURRENT USER REQUEST:\n");
+                fullPrompt.Append("\n\n### USER REQUEST:\n");
                 fullPrompt.Append(userMessage);
 
                 // Подготовка данных запроса для Ollama
@@ -135,7 +159,7 @@ namespace RevitAIProject.Services
                     prompt = fullPrompt.ToString(),
                     format = "json",
                     stream = false,
-                    options = new { temperature = 0.1 }
+                    options = new { temperature = 0.0 }
                 };
 
                 string jsonPayload = JsonConvert.SerializeObject(requestData);
@@ -147,9 +171,11 @@ namespace RevitAIProject.Services
 
                 string responseBody = await response.Content.ReadAsStringAsync();
 
-                // Извлекаем текстовое поле "response" из оболочки Ollama
+                // 1. Извлекаем ответ из оболочки Ollama
                 JObject ollamaJson = JObject.Parse(responseBody);
-                string rawAiResponse = ollamaJson["response"] != null ? ollamaJson["response"].ToString() : "{}";
+                string rawAiResponse = ollamaJson["response"]?.ToString() ?? "{}";
+
+                 System.Windows.MessageBox.Show(rawAiResponse, "AI Raw Output");
 
                 return ParseToAiResponse(rawAiResponse);
             }
@@ -160,34 +186,56 @@ namespace RevitAIProject.Services
                 errorResponse.Actions = new List<IRevitAction>();
                 return errorResponse;
             }
-        }
+        }*/
 
         private string GetDynamicCommandsDescription()
         {
             var sb = new StringBuilder();
-            var actionTypes = Assembly.GetExecutingAssembly()
-                .GetTypes()
+
+            // 1. Находим все классы экшенов в текущей сборке
+            var actionTypes = Assembly.GetExecutingAssembly().GetTypes()
                 .Where(t => typeof(IRevitAction).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
 
             foreach (var type in actionTypes)
             {
-                // Убираем слово Action из имени для ИИ (CreateFloorAction -> CreateFloor)
-                string shortName = type.Name.Replace("Action", "");
-                sb.Append("- ").Append(shortName).Append(" params: { ");
+                // Создаем временный экземпляр, чтобы прочитать свойства (или берем через Reflection)
+                var instance = Activator.CreateInstance(type) as IRevitAction;
 
-                var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-                var paramNames = new List<string>();
+                // 2. Ищем атрибут на свойстве ActionName
+                var nameProp = type.GetProperty(nameof(IRevitAction.ActionName));
+                var nameAttr = nameProp?.GetCustomAttribute<AiParamAttribute>();
+
+                // Улучшенная логика: если имя в атрибуте null ИЛИ пустая строка ""
+                string cmdName = string.IsNullOrWhiteSpace(nameAttr?.Name)
+                                 ? instance.ActionName
+                                 : nameAttr.Name;
+
+                // Описание: если атрибута нет или Description пустой
+                string cmdDesc = string.IsNullOrWhiteSpace(nameAttr?.Description)
+                                 ? $"Executes the {cmdName} command."
+                                 : nameAttr.Description;
+
+                sb.AppendLine($"- **{cmdName}**: {cmdDesc}");
+
+                // 3. Собираем параметры (свойства с AiParam)
+                var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                                .Where(p => p.GetCustomAttribute<AiParamAttribute>() != null);
 
                 foreach (var prop in props)
                 {
-                    // Берем имя из атрибута или имя самого свойства
-                    var attr = prop.GetCustomAttribute<AiParamAttribute>();
-                    if (attr != null) paramNames.Add("\"" + attr.Name + "\": number|string");
-                    else if (prop.Name != "ActionName") paramNames.Add("\"" + prop.Name.ToLower() + "\": number|string");
+                    // Пропускаем само свойство ActionName, так как мы его уже описали выше
+                    if (prop.Name == nameof(IRevitAction.ActionName)) continue;
+
+                    var pAttr = prop.GetCustomAttribute<AiParamAttribute>();
+
+                    // Здесь тоже можно добавить fallback, если нужно
+                    string pName = pAttr.Name;
+                    string pDesc = pAttr.Description ?? "No description provided.";
+
+                    sb.AppendLine($"  * {pName}: {pDesc}");
                 }
 
-                sb.Append(string.Join(", ", paramNames));
-                sb.Append(" }\n");
+                sb.AppendLine(); // Разделитель между командами
             }
 
             return sb.ToString();

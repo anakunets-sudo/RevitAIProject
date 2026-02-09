@@ -10,6 +10,8 @@ namespace RevitAIProject.Actions
     public class AiParamAttribute : Attribute
     {
         public string Name { get; }
+        public string Description { get; set; } // Добавляем свойство для описания
+
         public AiParamAttribute(string name) => Name = name;
     }
 }

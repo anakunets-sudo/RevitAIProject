@@ -1,25 +1,17 @@
 ﻿using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using RevitAIProject.Actions;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace RevitAIProject.Services
 {
-    public class RevitApiService : IRevitApiService
+
+    public class RevitApiService : IRevitApiService, Actions.IActionContext
     {
-        private readonly ExternalEvent _externalEvent;
-        private readonly RevitTaskHandler _handler;
-
-        public event Action<string, RevitMessageType> OnMessageReported;
-
-        private void Report(string message, RevitMessageType messageType)
-        {
-            // Вызываем событие, если на него кто-то подписан
-            OnMessageReported?.Invoke(message, messageType);
-        }
-
         public RevitApiService() : this(new RevitTaskHandler())
         {
         }
@@ -30,101 +22,44 @@ namespace RevitAIProject.Services
             _externalEvent = ExternalEvent.Create(_handler);
         }
 
-        public void Run(Action<UIApplication> action)
+        private readonly ExternalEvent _externalEvent;
+        private readonly RevitTaskHandler _handler;
+
+        public event Action<string, RevitMessageType> OnMessageReported;
+
+        public void Report(string message, RevitMessageType messageType)
         {
-            _handler.Enqueue(action);
-            _externalEvent.Raise();
+            // Вызываем событие, если на него кто-то подписан
+            OnMessageReported?.Invoke(message, messageType);
         }
 
-        public void ApplyRoofSlopes(double slopePercent)
+        // Реализация IActionContext (безопасные свойства)
+        public UIApplication UIApp { get; private set; }
+        public UIDocument UIDoc { get; private set; }
+        // Это наш "блокнот" для связи имен ИИ с реальными ID Revit
+        public Dictionary<string, ElementId> Variables { get; } = new Dictionary<string, ElementId>();
+
+        private readonly List<Action<IActionContext>> _queue = new List<Action<IActionContext>>();
+        public void AddToQueue(Action<IActionContext> task) => _queue.Add(task);
+
+        public void Raise()
         {
-            Run(app =>
-            {
-                // Тут код работы с уклонами (из предыдущих шагов)
-                TaskDialog.Show("Revit AI", "Уклон установлен на " + slopePercent + "%");
-            });
-        }
+            var tasks = _queue.ToList();
+            _queue.Clear();
 
-        public void CreateFloorByWalls(string wallFilter, double thicknessMm, double offsetMm)
-        {
-            _handler.Enqueue(app =>
-            {
-                UIDocument uiDoc = app.ActiveUIDocument;
-                Document doc = uiDoc.Document;
+            _handler.Enqueue(uiApp => {
 
-                try
-                {
-                    // 1. Сбор стен (Выделение или Коннектор)
-                    ICollection<ElementId> selectedIds = uiDoc.Selection.GetElementIds();
-                    List<Wall> walls = new List<Wall>();
+                this.UIApp = uiApp; // Устанавливаем текущий контекст
 
-                    if (selectedIds.Count > 0)
-                    {
-                        foreach (ElementId id in selectedIds)
-                        {
-                            Wall wall = doc.GetElement(id) as Wall;
-                            if (wall != null) walls.Add(wall);
-                        }
-                    }
+                this.UIDoc = UIApp.ActiveUIDocument; // Устанавливаем текущий контекст
 
-                    if (walls.Count == 0)
-                    {
-                        walls = new FilteredElementCollector(doc)
-                            .OfClass(typeof(Wall))
-                            .Cast<Wall>()
-                            .Where(w => w.WallType.Function == WallFunction.Exterior)
-                            .ToList();
-                    }
+                foreach (var task in tasks) task(this); // Передаем 'this' как IActionContext
 
-                    if (walls.Count == 0) throw new Exception("Стены не найдены.");
-
-                    // 2. Извлечение геометрии
-                    List<Curve> wallCurves = new List<Curve>();
-                    foreach (Wall wall in walls)
-                    {
-                        LocationCurve lc = wall.Location as LocationCurve;
-                        if (lc != null) wallCurves.Add(lc.Curve);
-                    }
-
-                    // 3. Сортировка "разнобоя" в цепочку
-                    CurveArray profile = Utils.GeometryUtils.SortCurves(wallCurves);
-
-                    // 4. ПРОВЕРКА КОНТУРА (Интегрирована)
-                    if (!Utils.GeometryUtils.IsCurveArrayClosed(profile))
-                    {
-                        throw new Exception("Контур не замкнут. Начало первой стены не совпадает с концом последней.");
-                    }
-
-                    // 5. Создание перекрытия
-                    using (Transaction tx = new Transaction(doc, "AI: Create Floor"))
-                    {
-                        tx.Start();
-
-                        Level level = doc.ActiveView.GenLevel ??
-                                     new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().First();
-
-                        FloorType fType = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().First();
-
-                        Floor floor = doc.Create.NewFloor(profile, fType, level, false);
-
-                        // Установка смещения
-                        if (Math.Abs(offsetMm) > 0.001)
-                        {
-                            Parameter p = floor.get_Parameter(BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM);
-                            if (p != null) p.Set(offsetMm / 304.8);
-                        }
-
-                        tx.Commit();
-                        Report("Готово! Стен: " + walls.Count, RevitMessageType.Info);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Report(ex.Message, RevitMessageType.Error);
-                }
             });
 
             _externalEvent.Raise();
         }
     }
 }
+
+       
