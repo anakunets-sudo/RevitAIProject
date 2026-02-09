@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Threading.Tasks;
 
 namespace RevitAIProject.Services
 {
@@ -10,10 +11,11 @@ namespace RevitAIProject.Services
         public event Action<string> OnTextRecognized;
         public event Action<string> OnPartialTextReceived;
         private Process _voiceProcess;
+        private TaskCompletionSource<bool> _processExitTcs; // Хелпер для асинхронного ожидания
 
         public void Start()
         {
-            if (_voiceProcess != null) Stop();
+            if (_voiceProcess != null) { Task.Run(() => StopAsync()); }
 
             string dllPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             string exePath = Path.Combine(dllPath, "services", "VoskVoiceHost.exe");
@@ -36,13 +38,15 @@ namespace RevitAIProject.Services
                 CreateNoWindow = true,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
-                RedirectStandardError = true
+                RedirectStandardError = true,
             };
 
             // Подписываемся на события ДО запуска
             _voiceProcess.OutputDataReceived += (s, e) =>
             {
-                if (string.IsNullOrEmpty(e.Data)) return;
+                //System.Diagnostics.Debug.WriteLine("ОТЛАДКА: Пришла строка от EXE: " + e.Data);
+
+                if (string.IsNullOrEmpty(e.Data)) return; // Игнорируем пустые строки
 
                 if (e.Data.StartsWith("P:"))
                 {
@@ -66,22 +70,32 @@ namespace RevitAIProject.Services
             }
         }
 
-        public void Stop()
+        public async Task StopAsync() // Делаем метод асинхронным
         {
             if (_voiceProcess == null || _voiceProcess.HasExited) return;
 
-            _voiceProcess.StandardInput.WriteLine(); // Сигнал к завершению
+            _processExitTcs = new TaskCompletionSource<bool>();
 
-            // Читаем всё, что EXE успел написать в выходной поток
-            string json = _voiceProcess.StandardOutput.ReadToEnd();
-            _voiceProcess.WaitForExit();
+            // Подписываемся на событие завершения процесса
+            _voiceProcess.EnableRaisingEvents = true;
+            _voiceProcess.Exited += (sender, e) => _processExitTcs.TrySetResult(true);
 
-            if (!string.IsNullOrWhiteSpace(json))
+            try
             {
-                OnTextRecognized?.Invoke(json);
-            }
+                _voiceProcess.StandardInput.WriteLine(); // Посылаем сигнал "Стоп"
 
-            _voiceProcess = null;
+                // Асинхронно ждем завершения (не блокируем Revit)
+                await _processExitTcs.Task;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("Stop error: " + ex.Message);
+            }
+            finally
+            {
+                _voiceProcess.Dispose();
+                _voiceProcess = null;
+            }
         }
     }
 }

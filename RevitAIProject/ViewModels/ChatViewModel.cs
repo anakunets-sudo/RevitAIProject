@@ -47,15 +47,25 @@ namespace RevitAIProject.ViewModels
             ChatHistory = "Система: Ожидание вашего запроса...\n";
 
             _voice.OnPartialTextReceived += (json) => {
+                // Распарсил в фоне - молодец
                 var data = JsonConvert.DeserializeObject<dynamic>(json);
                 string text = data?.partial;
+
                 if (!string.IsNullOrWhiteSpace(text))
                 {
+                    // Используй BeginInvoke для "живого" текста
                     _dispatcher.Invoke(() => { UserInput = text; });
                 }
             };
 
             _voice.OnTextRecognized += (json) => {
+
+                if (string.IsNullOrWhiteSpace(json))
+                { // Проверка, что строка не пустая
+                    _dispatcher.Invoke(() => IsRecording = false);
+                    return;
+                }
+
                 var data = JsonConvert.DeserializeObject<dynamic>(json);
                 string text = data?.text;
 
@@ -76,7 +86,7 @@ namespace RevitAIProject.ViewModels
             RecordVoiceCommand = new RelayCommand(() => { OnRecordVoice(); });
         }
 
-        private void OnRecordVoice()
+        private async Task OnRecordVoice()
         {
             if (!IsRecording)
             {
@@ -87,11 +97,12 @@ namespace RevitAIProject.ViewModels
                 }
 
                 IsRecording = true;
-                _voice.Start();
+                await _voice.StopAsync();
             }
             else
             {
-                _voice.Stop();
+                IsRecording = false; // Мгновенно меняем цвет кнопки
+                await _voice.StopAsync(); // Останавливаем EXE в фоновом потоке
             }
         }
 
