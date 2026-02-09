@@ -1,8 +1,10 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
+using System.Windows;
 
 namespace RevitAIProject.Services
 {
@@ -33,28 +35,54 @@ namespace RevitAIProject.Services
             _voiceProcess.StartInfo = new ProcessStartInfo
             {
                 FileName = exePath,
-                Arguments = $"\"{modelPath}\"", // Передаем путь к модели аргументом
+                Arguments = $"{modelPath}", // Передаем путь к модели аргументом
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
-                RedirectStandardError = true,
+                StandardOutputEncoding = System.Text.Encoding.UTF8
             };
 
             // Подписываемся на события ДО запуска
             _voiceProcess.OutputDataReceived += (s, e) =>
             {
-                //System.Diagnostics.Debug.WriteLine("ОТЛАДКА: Пришла строка от EXE: " + e.Data);
+                //System.Windows.MessageBox.Show("Данные дошли: " + e.Data);
 
-                if (string.IsNullOrEmpty(e.Data)) return; // Игнорируем пустые строки
+                // 1. Проверка на пустые строки (защита от падения Revit)
+                if (string.IsNullOrWhiteSpace(e.Data) || e.Data.Length < 3) return;
 
-                if (e.Data.StartsWith("P:"))
+                try
                 {
-                    OnPartialTextReceived?.Invoke(e.Data.Substring(2));
+                    string prefix = e.Data.Substring(0, 2); // "P:" или "F:"
+                    string jsonContent = e.Data.Substring(2);
+
+                    // 2. Используем dynamic для парсинга
+                    dynamic result = JsonConvert.DeserializeObject(jsonContent);
+                    if (result == null) return;
+
+                    if (prefix == "P:")
+                    {
+                        // У Vosk промежуточный результат лежит в поле "partial"
+                        string partialText = result.partial;
+                        if (!string.IsNullOrEmpty(partialText))
+                        {
+                            OnPartialTextReceived?.Invoke(partialText);
+                        }
+                    }
+                    else if (prefix == "F:")
+                    {
+                        // Финальный результат лежит в поле "text"
+                        string finalText = result.text;
+                        if (!string.IsNullOrEmpty(finalText))
+                        {
+                            OnTextRecognized?.Invoke(finalText);
+                        }
+                    }
                 }
-                else if (e.Data.StartsWith("F:"))
+                catch (Exception ex)
                 {
-                    OnTextRecognized?.Invoke(e.Data.Substring(2));
+                    // 3. Ловим любые ошибки парсинга, чтобы Revit не "схлопнулся"
+                    System.Diagnostics.Debug.WriteLine("Ошибка распознавания: " + ex.Message);
                 }
             };
 
@@ -70,31 +98,13 @@ namespace RevitAIProject.Services
             }
         }
 
-        public async Task StopAsync() // Делаем метод асинхронным
+        public async Task StopAsync()
         {
-            if (_voiceProcess == null || _voiceProcess.HasExited) return;
-
-            _processExitTcs = new TaskCompletionSource<bool>();
-
-            // Подписываемся на событие завершения процесса
-            _voiceProcess.EnableRaisingEvents = true;
-            _voiceProcess.Exited += (sender, e) => _processExitTcs.TrySetResult(true);
-
-            try
+            if (_voiceProcess != null && !_voiceProcess.HasExited)
             {
-                _voiceProcess.StandardInput.WriteLine(); // Посылаем сигнал "Стоп"
-
-                // Асинхронно ждем завершения (не блокируем Revit)
-                await _processExitTcs.Task;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine("Stop error: " + ex.Message);
-            }
-            finally
-            {
-                _voiceProcess.Dispose();
-                _voiceProcess = null;
+                _voiceProcess.StandardInput.WriteLine(""); // Отправляем Enter в хост
+                await Task.Delay(100); // Даем время на сохранение финала
+                _voiceProcess.Kill();
             }
         }
     }

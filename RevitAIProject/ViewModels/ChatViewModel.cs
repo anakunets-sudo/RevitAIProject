@@ -47,6 +47,7 @@ namespace RevitAIProject.ViewModels
             ChatHistory = "Система: Ожидание вашего запроса...\n";
 
             _voice.OnPartialTextReceived += (json) => {
+
                 // Распарсил в фоне - молодец
                 var data = JsonConvert.DeserializeObject<dynamic>(json);
                 string text = data?.partial;
@@ -83,26 +84,32 @@ namespace RevitAIProject.ViewModels
                 }
             };
 
-            RecordVoiceCommand = new RelayCommand(() => { OnRecordVoice(); });
+            RecordVoiceCommand = new RelayCommand(async () => { await OnRecordVoice(); });
         }
 
         private async Task OnRecordVoice()
         {
             if (!IsRecording)
             {
-                // МГНОВЕННЫЙ ОБРЫВ: Если ИИ еще думает, отменяем его задачу
-                if (IsBusy)
-                {
-                    _cts?.Cancel();
-                }
+                // 1. Подготовка
+                if (IsBusy) _cts?.Cancel();
 
+                // 2. Визуальный отклик
                 IsRecording = true;
-                await _voice.StopAsync();
+
+                // 3. ЗАПУСК (убедитесь, что метод Start() в VoiceService делает то, что мы обсуждали)
+                _voice.Start();
             }
             else
             {
-                IsRecording = false; // Мгновенно меняем цвет кнопки
-                await _voice.StopAsync(); // Останавливаем EXE в фоновом потоке
+                // 1. Визуальный отклик
+                IsRecording = false;
+
+                // 2. ОСТАНОВКА
+                await _voice.StopAsync();
+
+                // 3. Отправка итогового текста в Ollama (если нужно)
+                // SendToOllama(InputText); 
             }
         }
 
