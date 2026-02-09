@@ -56,17 +56,14 @@ namespace RevitAIProject.ViewModels
             };
 
             _voice.OnTextRecognized += (json) => {
-                // Десериализуем JSON от Vosk
                 var data = JsonConvert.DeserializeObject<dynamic>(json);
-                string recognizedText = data?.text;
+                string text = data?.text;
 
-                if (!string.IsNullOrWhiteSpace(recognizedText))
+                if (!string.IsNullOrWhiteSpace(text))
                 {
                     _dispatcher.Invoke(() => {
-                        // КРИТИЧНО: Используем VoiceInsert вместо UserInput
-                        // Это активирует логику в TextBoxHelper.OnInsertTextChanged
-                        VoiceInsert = recognizedText;
-
+                        // Передаем текст в триггер вставки
+                        VoiceInsert = text;
                         IsRecording = false;
                     });
                 }

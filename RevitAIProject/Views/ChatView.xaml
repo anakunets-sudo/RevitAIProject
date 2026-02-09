@@ -35,9 +35,9 @@
 
             <TextBox x:Name="InputTextBox" Height="30" VerticalContentAlignment="Center" Padding="5,0" 
              Text="{Binding UserInput, UpdateSourceTrigger=PropertyChanged}"
-                    local:TextBoxHelper.ObserveSelection="True"
-                    local:TextBoxHelper.SelectionStart="{Binding CursorPosition, Mode=TwoWay}"
-                    local:TextBoxHelper.InsertText="{Binding VoiceInsert, Mode=TwoWay}" >
+                local:TextBoxHelper.ObserveSelection="True"
+                local:TextBoxHelper.SelectionStart="{Binding CursorPosition, Mode=TwoWay}"
+                local:TextBoxHelper.InsertText="{Binding VoiceInsert, Mode=TwoWay}" >
                 <TextBox.InputBindings>
                     <KeyBinding Key="Enter" Command="{Binding SendCommand}" />
                 </TextBox.InputBindings>

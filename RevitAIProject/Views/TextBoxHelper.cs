@@ -1,4 +1,5 @@
-﻿using System.Windows;
+﻿using System;
+using System.Windows;
 using System.Windows.Controls;
 
 namespace RevitAIProject.Views
@@ -23,20 +24,37 @@ namespace RevitAIProject.Views
 
         private static void OnInsertTextChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
-            if (d is TextBox textBox && e.NewValue is string voiceText)
+            if (d is TextBox textBox && e.NewValue is string voiceText && !string.IsNullOrWhiteSpace(voiceText))
             {
-                int start = textBox.SelectionStart;
-                string currentText = textBox.Text ?? "";
+                // Используем BeginInvoke, чтобы дать WPF завершить текущие события 
+                // и избежать рекурсивного вылета Revit
+                textBox.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    int start = textBox.SelectionStart;
+                    string currentText = textBox.Text ?? "";
 
-                // Вставляем текст в позицию курсора
-                string newText = currentText.Insert(start, voiceText);
+                    if (string.IsNullOrEmpty(currentText))
+                    {
+                        // Поле пустое - просто записываем текст
+                        textBox.Text = voiceText;
+                        textBox.SelectionStart = voiceText.Length;
+                    }
+                    else
+                    {
+                        // Логика умных пробелов, чтобы текст не слипался
+                        string toInsert = voiceText;
+                        if (start > 0 && currentText[start - 1] != ' ') toInsert = " " + toInsert;
+                        if (start < currentText.Length && currentText[start] != ' ') toInsert += " ";
 
-                textBox.Text = newText;
-                // Переставляем курсор в конец вставленного текста
-                textBox.SelectionStart = start + voiceText.Length;
+                        // Вставка в позицию курсора
+                        textBox.Text = currentText.Insert(start, toInsert);
+                        textBox.SelectionStart = start + toInsert.Length;
+                    }
 
-                textBox.Focus();
-                SetInsertText(textBox, null); // Сбрасываем триггер
+                    textBox.Focus();
+                    // ОБЯЗАТЕЛЬНО: Сбрасываем свойство во ViewModel, чтобы триггер сработал в следующий раз
+                    SetInsertText(textBox, null);
+                }), System.Windows.Threading.DispatcherPriority.Background);
             }
         }
 
