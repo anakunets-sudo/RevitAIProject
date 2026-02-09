@@ -13,35 +13,57 @@ namespace RevitAIProject.Services
 
         public void Start()
         {
-            if (_voiceProcess != null) Stop(); // Страховка
+            if (_voiceProcess != null) Stop();
 
             string dllPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            // Путь к EXE в подпапке services
-            string exePath = Path.Combine(dllPath, "services", "VoksVoiceHost.exe");
+            string exePath = Path.Combine(dllPath, "services", "VoskVoiceHost.exe");
             string modelPath = Path.Combine(dllPath, "models", "vosk-model-small-ru-0.22");
 
-            _voiceProcess.Start();
+            if (!File.Exists(exePath))
+            {
+                System.Windows.MessageBox.Show("EXE не найден: " + exePath);
+                return;
+            }
 
-            _voiceProcess.StartInfo.RedirectStandardOutput = true;
+            _voiceProcess = new Process();
 
+            // ОШИБКА БЫЛА ТУТ: Нужно обязательно заполнить StartInfo
+            _voiceProcess.StartInfo = new ProcessStartInfo
+            {
+                FileName = exePath,
+                Arguments = $"\"{modelPath}\"", // Передаем путь к модели аргументом
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+
+            // Подписываемся на события ДО запуска
             _voiceProcess.OutputDataReceived += (s, e) =>
             {
                 if (string.IsNullOrEmpty(e.Data)) return;
 
                 if (e.Data.StartsWith("P:"))
                 {
-                    // Отправляем промежуточный текст (JSON внутри Vosk содержит поле "partial")
                     OnPartialTextReceived?.Invoke(e.Data.Substring(2));
                 }
                 else if (e.Data.StartsWith("F:"))
                 {
-                    // Отправляем финальный текст
                     OnTextRecognized?.Invoke(e.Data.Substring(2));
                 }
             };
 
-            _voiceProcess.Start();
-            _voiceProcess.BeginOutputReadLine(); // КРИТИЧНО для живого чтения
+            try
+            {
+                _voiceProcess.Start();
+                // Начинаем чтение ПОСЛЕ старта
+                _voiceProcess.BeginOutputReadLine();
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show("Ошибка запуска: " + ex.Message);
+            }
         }
 
         public void Stop()
