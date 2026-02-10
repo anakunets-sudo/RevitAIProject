@@ -20,7 +20,7 @@ namespace RevitAIProject.Views
             RevitTaskHandler handler = new RevitTaskHandler();
             IRevitApiService revitService = new RevitApiService(handler);
             IOllamaService ollamaService = new OllamaService();
-            var voiceService = new VoiceService();
+            var voiceService = new VoiceService(this);
 
             if (!SimpleIoc.Default.IsRegistered<ChatViewModel>())
             {

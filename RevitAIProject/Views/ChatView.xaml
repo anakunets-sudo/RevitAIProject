@@ -20,7 +20,7 @@
         <ScrollViewer Name="ChatScroll" Grid.Row="0" VerticalScrollBarVisibility="Auto" Margin="5">
             <StackPanel>
                 <TextBox TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" FontSize="12" FontFamily="Consolas" Background="#F9F9F9" Padding="10" Text="{Binding ChatHistory, Mode=OneWay}" />
-                <TextBlock Text="ИИ думает..." FontStyle="Italic" Foreground="#FF808080" Margin="10,5" Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
+                <TextBlock Text="AI думает..." FontStyle="Italic" Foreground="#FF808080" Margin="10,5" Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
             </StackPanel>
         </ScrollViewer>
         <Grid Grid.Row="1" Margin="10">

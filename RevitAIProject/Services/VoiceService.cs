@@ -1,111 +1,133 @@
 ﻿using Newtonsoft.Json;
+using RevitAIProject.Views;
 using System;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
-using System.Windows;
 
 namespace RevitAIProject.Services
 {
+    // Простая модель для десериализации
+    public class VoskResponse
+    {
+        [JsonProperty("text")]
+        public string Text { get; set; }
+    }
+
     public class VoiceService
     {
         public event Action<string> OnTextRecognized;
-        public event Action<string> OnPartialTextReceived;
         private Process _voiceProcess;
-        private TaskCompletionSource<bool> _processExitTcs; // Хелпер для асинхронного ожидания
+        IUIDispatcherHelper _dispatcher;
+
+        public VoiceService(IUIDispatcherHelper dispatcher)
+        {
+            _dispatcher = dispatcher;
+        }
 
         public void Start()
         {
-            if (_voiceProcess != null) { Task.Run(() => StopAsync()); }
+            // 1. Жесткая очистка перед стартом
+            StopCurrentProcess();
 
             string dllPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             string exePath = Path.Combine(dllPath, "services", "VoskVoiceHost.exe");
-            string modelPath = Path.Combine(dllPath, "models", "vosk-model-small-ru-0.22");
+            string modelPath = $"\"{Path.Combine(dllPath, "models", "vosk-model-small-ru-0.22")}\"";
+            string logPath = Path.Combine(dllPath, "vosk_errors.log");
 
-            if (!File.Exists(exePath))
-            {
-                System.Windows.MessageBox.Show("EXE не найден: " + exePath);
-                return;
-            }
+            if (!File.Exists(exePath)) return;
 
             _voiceProcess = new Process();
-
-            // ОШИБКА БЫЛА ТУТ: Нужно обязательно заполнить StartInfo
             _voiceProcess.StartInfo = new ProcessStartInfo
             {
                 FileName = exePath,
-                Arguments = $"{modelPath}", // Передаем путь к модели аргументом
-                UseShellExecute = false,
-                CreateNoWindow = false,
+                Arguments = $"\"{modelPath}\"", // Кавычки для путей с пробелами
+                WorkingDirectory = Path.Combine(dllPath, "services"), // КРИТИЧНО: EXE должен "думать", что он в своей папке
+                UseShellExecute = false,         // ОБЯЗАТЕЛЬНО false для Redirect
+                CreateNoWindow = true,           // Можно поставить false для теста (увидишь окно)
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
-                StandardOutputEncoding = System.Text.Encoding.UTF8
+                RedirectStandardError = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8
             };
 
-            // Подписываемся на события ДО запуска
+            // Логируем системные сообщения Vosk (stderr)
+            _voiceProcess.ErrorDataReceived += (s, e) =>
+            {
+                if (string.IsNullOrWhiteSpace(e.Data)) return;
+                try { File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss}] VOSK: {e.Data}{Environment.NewLine}"); } catch { }
+            };
+
+            // Слушаем только финальный результат (stdout)
             _voiceProcess.OutputDataReceived += (s, e) =>
             {
-                //System.Windows.MessageBox.Show("Данные дошли: " + e.Data);
-
-                // 1. Проверка на пустые строки (защита от падения Revit)
-                if (string.IsNullOrWhiteSpace(e.Data) || e.Data.Length < 3) return;
+                // 1. Проверка на пустоту (BeginOutputReadLine шлет null при закрытии процесса)
+                if (string.IsNullOrEmpty(e.Data)) return;
 
                 try
                 {
-                    string prefix = e.Data.Substring(0, 2); // "P:" или "F:"
-                    string jsonContent = e.Data.Substring(2);
+                    // Логируем в консоль отладки Revit, чтобы понять, дошла ли строка
+                    Debug.WriteLine($"[VOSK_DEBUG] Raw Data: {e.Data}");
 
-                    // 2. Используем dynamic для парсинга
-                    dynamic result = JsonConvert.DeserializeObject(jsonContent);
-                    if (result == null) return;
+                    // 2. Парсим JSON
+                    var response = JsonConvert.DeserializeObject<VoskResponse>(e.Data);
 
-                    if (prefix == "P:")
+                    if (response != null && !string.IsNullOrWhiteSpace(response.Text))
                     {
-                        // У Vosk промежуточный результат лежит в поле "partial"
-                        string partialText = result.partial;
-                        if (!string.IsNullOrEmpty(partialText))
+                        string recognizedText = response.Text.Trim();
+
+                        // 3. ПЕРЕДАЧА В UI (Dispatcher)
+                        // Используем Application.Current.Dispatcher, так как событие прилетает из фонового потока процесса
+                        //System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() =>
+                        //{
+                        //    OnTextRecognized?.Invoke(recognizedText);
+                        //}), System.Windows.Threading.DispatcherPriority.Background);
+
+                        _dispatcher.Invoke(new Action(() =>
                         {
-                            OnPartialTextReceived?.Invoke(partialText);
-                        }
-                    }
-                    else if (prefix == "F:")
-                    {
-                        // Финальный результат лежит в поле "text"
-                        string finalText = result.text;
-                        if (!string.IsNullOrEmpty(finalText))
-                        {
-                            OnTextRecognized?.Invoke(finalText);
-                        }
+                            OnTextRecognized?.Invoke(recognizedText);
+                        }));
                     }
                 }
                 catch (Exception ex)
                 {
-                    // 3. Ловим любые ошибки парсинга, чтобы Revit не "схлопнулся"
-                    System.Diagnostics.Debug.WriteLine("Ошибка распознавания: " + ex.Message);
+                    Debug.WriteLine($"[VOSK_ERROR] Parsing error: {ex.Message} | Data: {e.Data}");
                 }
             };
 
             try
             {
                 _voiceProcess.Start();
-                // Начинаем чтение ПОСЛЕ старта
                 _voiceProcess.BeginOutputReadLine();
+                _voiceProcess.BeginErrorReadLine();
             }
             catch (Exception ex)
             {
-                System.Windows.MessageBox.Show("Ошибка запуска: " + ex.Message);
+                Debug.WriteLine("Vosk Start Error: " + ex.Message);
             }
+        }
+
+        private void StopCurrentProcess()
+        {
+            try
+            {
+                if (_voiceProcess != null && !_voiceProcess.HasExited)
+                {
+                    _voiceProcess.Kill();
+                    _voiceProcess.WaitForExit(500);
+                }
+            }
+            catch { }
+            finally { _voiceProcess = null; }
         }
 
         public async Task StopAsync()
         {
-            if (_voiceProcess != null && !_voiceProcess.HasExited)
-            {
-                _voiceProcess.StandardInput.WriteLine(""); // Отправляем Enter в хост
-                await Task.Delay(100); // Даем время на сохранение финала
-                _voiceProcess.Kill();
-            }
+            await Task.Run(() => StopCurrentProcess());
         }
     }
 }

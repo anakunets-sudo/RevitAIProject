@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Text;
 using NAudio.Wave;
 using Vosk;
 
@@ -9,10 +10,13 @@ namespace VoskVoiceHost
     {
         static void Main(string[] args)
         {
+            // Устанавливаем UTF8 для корректной передачи кириллицы
+            Console.OutputEncoding = Encoding.UTF8;
+
             // 1. Проверка аргументов
             if (args.Length == 0)
             {
-                Console.WriteLine("E:Путь к модели не передан.");
+                Console.Error.WriteLine("HOST_ERROR: Путь к модели не передан.");
                 return;
             }
 
@@ -20,62 +24,86 @@ namespace VoskVoiceHost
 
             if (!Directory.Exists(modelPath))
             {
-                Console.WriteLine($"E:Модель не найдена: {modelPath}");
+                Console.Error.WriteLine($"HOST_ERROR: Модель не найдена: {modelPath}");
                 return;
             }
 
-            Console.WriteLine($"E:Готов к работе");
+            // Служебная информация в Error (уйдет в лог Revit)
+            Console.Error.WriteLine($"HOST_LOG: Модель загружена из {modelPath}");
+
+            // Дебаг аудио-устройств в файл
+            try
+            {
+                var debugPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug.txt");
+                using (StreamWriter sw = new StreamWriter(debugPath, false))
+                {
+                    sw.WriteLine($"--- Audio Devices Check at {DateTime.Now} ---");
+                    int deviceCount = WaveInEvent.DeviceCount;
+                    sw.WriteLine($"Found {deviceCount} devices.");
+                    for (int i = 0; i < deviceCount; i++)
+                    {
+                        var capabilities = WaveInEvent.GetCapabilities(i);
+                        sw.WriteLine($"Device {i}: {capabilities.ProductName}, Channels: {capabilities.Channels}");
+                    }
+                }
+            }
+            catch { /* Игнорируем ошибки записи дебага */ }
 
             // 2. Инициализация Vosk и Аудио
             try
             {
-                using (Model model = new Model(modelPath))
-                using (VoskRecognizer rec = new VoskRecognizer(model, 16000))
-                using (WaveInEvent waveIn = new WaveInEvent { WaveFormat = new WaveFormat(16000, 1) })
+                using (var model = new Model(modelPath))
+                using (var rec = new VoskRecognizer(model, 16000f))
+                using (var waveIn = new WaveInEvent
+                {
+                    DeviceNumber = 0, // Убедись, что это верный индекс
+                    WaveFormat = new WaveFormat(16000, 1) // 16кГц Моно
+                })
                 {
                     waveIn.DataAvailable += (s, e) =>
                     {
                         if (rec.AcceptWaveform(e.Buffer, e.BytesRecorded))
                         {
-                            string result = rec.Result();
-                            // Проверяем, что результат не пустой
+                            var result = rec.Result(); // Получаем многострочный JSON от Vosk
+
                             if (!string.IsNullOrWhiteSpace(result))
                             {
-                                Console.WriteLine("F:" + result);
+                                // --- ВОТ ЭТОТ БЛОК НУЖЕН ---
+                                // Убираем все переносы строк, чтобы Revit получил всё одним куском
+                                string cleanJson = result.Replace("\r", "").Replace("\n", "").Trim();
+
+                                // Отправляем ОДНУ строку и СРАЗУ сбрасываем буфер
+                                Console.WriteLine(cleanJson);
+                                Console.Out.Flush();
+
+                                // Для визуального контроля
+                                Console.Title = "Распознано: " + cleanJson;
+                                // ---------------------------
                             }
                         }
-                        else
-                        {
-                            string partial = rec.PartialResult();
-                            // Проверяем, что промежуточный результат не пустой
-                            if (!string.IsNullOrWhiteSpace(partial))
-                            {
-                                Console.WriteLine("P:" + partial);
-                            }
-                        }
-                        // Выталкиваем данные из буфера консоли немедленно в любом случае
-                        Console.Out.Flush();
                     };
 
                     waveIn.StartRecording();
+                    Console.Error.WriteLine("HOST_LOG: Microphone Started. Listening...");
 
-                    // Ожидаем команды "Стоп" (Enter) из Revit через StandardInput
-                    // Если Revit закроется, ReadLine выдаст null и мы выйдем из цикла
+                    // Ждем нажатия Enter (от StopAsync в Revit) или закрытия процесса
                     Console.ReadLine();
 
                     waveIn.StopRecording();
 
-                    // Отправляем самый последний накопленный результат
-                    Console.WriteLine("F:" + rec.FinalResult());
-                    Console.Out.Flush();
+                    // Финальный сброс (если что-то осталось в буфере)
+                    var final = rec.FinalResult();
+                    if (!string.IsNullOrWhiteSpace(final) && !final.Contains("\"text\": \"\""))
+                    {
+                        Console.WriteLine(final);
+                        Console.Out.Flush();
+                    }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine("E:" + ex.Message);
-                Console.Out.Flush();
-                Console.WriteLine("Нажмите любую клавишу для выхода...");
-                Console.ReadKey(); // Даст вам время прочитать текст ошибки при ручном запуске
+                // Ошибки исполнения в Error
+                Console.Error.WriteLine($"HOST_EXCEPTION: {ex.Message}");
             }
         }
     }
