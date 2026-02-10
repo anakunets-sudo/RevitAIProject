@@ -16,13 +16,15 @@ namespace VoskVoiceHost
                 return;
             }
 
-            string modelPath =  args[0];
+            string modelPath = args[0];
 
             if (!Directory.Exists(modelPath))
             {
                 Console.WriteLine($"E:Модель не найдена: {modelPath}");
                 return;
             }
+
+            Console.WriteLine($"E:Готов к работе");
 
             // 2. Инициализация Vosk и Аудио
             try

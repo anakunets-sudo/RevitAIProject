@@ -23,9 +23,6 @@ namespace RevitAIProject.ViewModels
         private int _cursorPosition;
         public int CursorPosition { get => _cursorPosition; set => Set(ref _cursorPosition, value); }
 
-        private string _voiceInsert;
-        public string VoiceInsert { get => _voiceInsert; set => Set(ref _voiceInsert, value); }
-
         private string _userInput;
         private string _chatHistory;
         private bool _isBusy;
@@ -46,70 +43,37 @@ namespace RevitAIProject.ViewModels
 
             ChatHistory = "Система: Ожидание вашего запроса...\n";
 
-            _voice.OnPartialTextReceived += (json) => {
-
-                // Распарсил в фоне - молодец
-                var data = JsonConvert.DeserializeObject<dynamic>(json);
-                string text = data?.partial;
-
-                if (!string.IsNullOrWhiteSpace(text))
+            _voice.OnTextRecognized += (text) =>
+            {
+                _dispatcher.Invoke(() =>
                 {
-                    // Используй BeginInvoke для "живого" текста
-                    _dispatcher.Invoke(() => { UserInput = text; });
-                }
+                    // Только здесь можно трогать свойства, привязанные к UI
+                    UserInput = text;
+                    IsRecording = false;
+                });
             };
 
-            _voice.OnTextRecognized += (json) => {
-
-                if (string.IsNullOrWhiteSpace(json))
-                { // Проверка, что строка не пустая
-                    _dispatcher.Invoke(() => IsRecording = false);
-                    return;
-                }
-
-                var data = JsonConvert.DeserializeObject<dynamic>(json);
-                string text = data?.text;
-
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    _dispatcher.Invoke(() => {
-                        // Передаем текст в триггер вставки
-                        VoiceInsert = text;
-                        IsRecording = false;
-                    });
-                }
-                else
-                {
-                    _dispatcher.Invoke(() => IsRecording = false);
-                }
-            };
-
-            RecordVoiceCommand = new RelayCommand(async () => { await OnRecordVoice(); });
+            RecordVoiceCommand = new RelayCommand(() => { OnRecordVoice(); });
         }
 
-        private async Task OnRecordVoice()
+        private void OnRecordVoice()
         {
             if (!IsRecording)
             {
-                // 1. Подготовка
-                if (IsBusy) _cts?.Cancel();
+                // МГНОВЕННЫЙ ОБРЫВ: Если ИИ еще думает, отменяем его задачу
+                if (IsBusy)
+                {
+                    _cts?.Cancel();
+                }
 
-                // 2. Визуальный отклик
                 IsRecording = true;
-
-                // 3. ЗАПУСК (убедитесь, что метод Start() в VoiceService делает то, что мы обсуждали)
                 _voice.Start();
             }
             else
             {
-                // 1. Визуальный отклик
                 IsRecording = false;
 
-                // 2. ОСТАНОВКА
-                await _voice.StopAsync();
-
-                // 3. Отправка итогового текста в Ollama (если нужно)
-                // SendToOllama(InputText); 
+                Task.Run(() => _voice.StopAsync());
             }
         }
 

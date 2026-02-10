@@ -15,16 +15,15 @@
     <Grid DataContext="{Binding ChatViewModel, Source={StaticResource Locator}}">
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
-            <RowDefinition Height="22.606" />
-            <RowDefinition Height="27.394"/>
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <ScrollViewer Name="ChatScroll" Grid.Row="0" VerticalScrollBarVisibility="Auto" Margin="5,5,5,5">
+        <ScrollViewer Name="ChatScroll" Grid.Row="0" VerticalScrollBarVisibility="Auto" Margin="5">
             <StackPanel>
                 <TextBox TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" FontSize="12" FontFamily="Consolas" Background="#F9F9F9" Padding="10" Text="{Binding ChatHistory, Mode=OneWay}" />
                 <TextBlock Text="ИИ думает..." FontStyle="Italic" Foreground="#FF808080" Margin="10,5" Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
             </StackPanel>
         </ScrollViewer>
-        <Grid Grid.Row="1" Margin="10,10,10,10" Grid.RowSpan="2">
+        <Grid Grid.Row="1" Margin="10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="40" />
@@ -34,10 +33,7 @@
             </Grid.ColumnDefinitions>
 
             <TextBox x:Name="InputTextBox" Height="30" VerticalContentAlignment="Center" Padding="5,0" 
-             Text="{Binding UserInput, UpdateSourceTrigger=PropertyChanged}"
-                local:TextBoxHelper.ObserveSelection="True"
-                local:TextBoxHelper.SelectionStart="{Binding CursorPosition, Mode=TwoWay}"
-                local:TextBoxHelper.InsertText="{Binding VoiceInsert, Mode=TwoWay}" >
+             Text="{Binding UserInput, UpdateSourceTrigger=PropertyChanged}" >
                 <TextBox.InputBindings>
                     <KeyBinding Key="Enter" Command="{Binding SendCommand}" />
                 </TextBox.InputBindings>

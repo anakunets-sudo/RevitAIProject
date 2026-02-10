@@ -37,7 +37,7 @@ namespace RevitAIProject.Services
                 FileName = exePath,
                 Arguments = $"{modelPath}", // Передаем путь к модели аргументом
                 UseShellExecute = false,
-                CreateNoWindow = true,
+                CreateNoWindow = false,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 StandardOutputEncoding = System.Text.Encoding.UTF8

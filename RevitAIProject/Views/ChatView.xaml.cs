@@ -37,13 +37,7 @@ namespace RevitAIProject.Views
 
         public void Invoke(Action action)
         {
-            // Проверяем, не закрывается ли приложение
-            if (_uiDispatcher.HasShutdownStarted) return;
-
-            // Используем Background приоритет для "живого ввода". 
-            // Это позволяет Revit сначала обработать клики и отрисовку, 
-            // а уже потом вписать текст в поле чата.
-            _uiDispatcher.BeginInvoke(DispatcherPriority.Background, action);
+            _uiDispatcher.BeginInvoke(action);
         }
 
         public static DockablePaneId PaneId
