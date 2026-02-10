@@ -21,94 +21,67 @@ namespace RevitAIProject.Services
     {
         public event Action<string> OnTextRecognized;
         private Process _voiceProcess;
-        IUIDispatcherHelper _dispatcher;
+        private readonly IUIDispatcherHelper _dispatcher;
+        private StringBuilder _sessionAccumulator = new StringBuilder(); // Буфер для накопления текста
 
-        public VoiceService(IUIDispatcherHelper dispatcher)
-        {
-            _dispatcher = dispatcher;
-        }
+        public VoiceService(IUIDispatcherHelper dispatcher) => _dispatcher = dispatcher;
 
         public void Start()
         {
-            // 1. Жесткая очистка перед стартом
             StopCurrentProcess();
+            _sessionAccumulator.Clear(); // Очищаем перед новой записью
 
             string dllPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             string exePath = Path.Combine(dllPath, "services", "VoskVoiceHost.exe");
-            string modelPath = $"\"{Path.Combine(dllPath, "models", "vosk-model-small-ru-0.22")}\"";
-            string logPath = Path.Combine(dllPath, "vosk_errors.log");
-
-            if (!File.Exists(exePath)) return;
+            string modelPath = Path.Combine(dllPath, "models", "vosk-model-small-ru-0.22");
 
             _voiceProcess = new Process();
             _voiceProcess.StartInfo = new ProcessStartInfo
             {
                 FileName = exePath,
-                Arguments = $"\"{modelPath}\"", // Кавычки для путей с пробелами
-                WorkingDirectory = Path.Combine(dllPath, "services"), // КРИТИЧНО: EXE должен "думать", что он в своей папке
-                UseShellExecute = false,         // ОБЯЗАТЕЛЬНО false для Redirect
-                CreateNoWindow = true,           // Можно поставить false для теста (увидишь окно)
-                RedirectStandardInput = true,
+                Arguments = $"\"{modelPath}\"",
+                WorkingDirectory = Path.Combine(dllPath, "services"),
+                UseShellExecute = false,
+                CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8
+                StandardOutputEncoding = Encoding.UTF8
             };
 
-            // Логируем системные сообщения Vosk (stderr)
-            _voiceProcess.ErrorDataReceived += (s, e) =>
-            {
-                if (string.IsNullOrWhiteSpace(e.Data)) return;
-                try { File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss}] VOSK: {e.Data}{Environment.NewLine}"); } catch { }
-            };
-
-            // Слушаем только финальный результат (stdout)
             _voiceProcess.OutputDataReceived += (s, e) =>
             {
-                // 1. Проверка на пустоту (BeginOutputReadLine шлет null при закрытии процесса)
                 if (string.IsNullOrEmpty(e.Data)) return;
-
                 try
                 {
-                    // Логируем в консоль отладки Revit, чтобы понять, дошла ли строка
-                    Debug.WriteLine($"[VOSK_DEBUG] Raw Data: {e.Data}");
-
-                    // 2. Парсим JSON
                     var response = JsonConvert.DeserializeObject<VoskResponse>(e.Data);
-
                     if (response != null && !string.IsNullOrWhiteSpace(response.Text))
                     {
-                        string recognizedText = response.Text.Trim();
-
-                        // 3. ПЕРЕДАЧА В UI (Dispatcher)
-                        // Используем Application.Current.Dispatcher, так как событие прилетает из фонового потока процесса
-                        //System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() =>
-                        //{
-                        //    OnTextRecognized?.Invoke(recognizedText);
-                        //}), System.Windows.Threading.DispatcherPriority.Background);
-
-                        _dispatcher.Invoke(new Action(() =>
-                        {
-                            OnTextRecognized?.Invoke(recognizedText);
-                        }));
+                        // СРАЗУ отправляем текст в UI, как только Vosk его распознал
+                        _dispatcher.Invoke(() => OnTextRecognized?.Invoke(response.Text));
                     }
                 }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[VOSK_ERROR] Parsing error: {ex.Message} | Data: {e.Data}");
-                }
+                catch { }
             };
 
-            try
+            _voiceProcess.Start();
+            _voiceProcess.BeginOutputReadLine();
+            _voiceProcess.BeginErrorReadLine();
+        }
+
+        public async Task StopAsync()
+        {
+            await Task.Run(() =>
             {
-                _voiceProcess.Start();
-                _voiceProcess.BeginOutputReadLine();
-                _voiceProcess.BeginErrorReadLine();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("Vosk Start Error: " + ex.Message);
-            }
+                StopCurrentProcess();
+
+                string finalResult = _sessionAccumulator.ToString().Trim();
+
+                // Передаем накопленный результат в UI один раз
+                if (!string.IsNullOrEmpty(finalResult))
+                {
+                    _dispatcher.Invoke(() => OnTextRecognized?.Invoke(finalResult));
+                }
+            });
         }
 
         private void StopCurrentProcess()
@@ -123,11 +96,6 @@ namespace RevitAIProject.Services
             }
             catch { }
             finally { _voiceProcess = null; }
-        }
-
-        public async Task StopAsync()
-        {
-            await Task.Run(() => StopCurrentProcess());
         }
     }
 }

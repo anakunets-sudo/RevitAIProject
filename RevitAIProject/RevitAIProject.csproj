@@ -107,21 +107,26 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Actions\AiParamAttribute.cs" />
-    <Compile Include="Actions\ApplySlopeAction.cs" />
-    <Compile Include="Actions\BaseRevitAction.cs" />
-    <Compile Include="Actions\CreateFloorByWallsAction.cs" />
-    <Compile Include="Actions\MoveElementAction.cs" />
+    <Compile Include="Logic\AiParamAttribute.cs" />
+    <Compile Include="Logic\Actions\CreateFloorAction.cs" />
+    <Compile Include="Logic\Actions\BaseRevitAction.cs" />
+    <Compile Include="Logic\Actions\MoveElementAction.cs" />
     <Compile Include="App.cs" />
     <Compile Include="Converters\BooleanToVisibilityConverter.cs" />
+    <Compile Include="Logic\IRevitContext.cs" />
+    <Compile Include="Logic\IRevitLogic.cs" />
+    <Compile Include="Logic\Queries\BaseRevitQuery.cs" />
+    <Compile Include="Logic\Queries\FilterJsonBuilder.cs" />
+    <Compile Include="Logic\Queries\GetElementsQuery.cs" />
+    <Compile Include="Logic\Queries\IRevitQuery.cs" />
+    <Compile Include="Services\SessionContext.cs" />
     <Compile Include="Services\VoiceService2.cs" />
     <Compile Include="Views\TextBoxHelper.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Services\ActionFactory.cs" />
     <Compile Include="Services\AiResponse.cs" />
-    <Compile Include="Actions\IActionContext.cs" />
     <Compile Include="Services\IOllamaService.cs" />
-    <Compile Include="Actions\IRevitAction.cs" />
+    <Compile Include="Logic\Actions\IRevitAction.cs" />
     <Compile Include="Services\IRevitApiService.cs" />
     <Compile Include="Services\OllamaService.cs" />
     <Compile Include="Services\RevitApiService.cs" />

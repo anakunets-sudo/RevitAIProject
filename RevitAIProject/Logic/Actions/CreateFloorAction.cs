@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 
-namespace RevitAIProject.Actions
+namespace RevitAIProject.Logic.Actions
 {
     public class CreateFloorAction : BaseRevitAction
     {
@@ -16,7 +16,7 @@ namespace RevitAIProject.Actions
         [AiParam("offset", Description = "The offset can be up (+) and down (-)")]
         public double OffsetFt { get; set; }
 
-        protected override void Execute(IActionContext context)
+        protected override void Execute(IRevitContext context)
         {
                 UIDocument uiDoc = context.UIDoc;
                 Document doc = uiDoc.Document;

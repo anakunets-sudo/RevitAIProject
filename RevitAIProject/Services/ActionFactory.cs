@@ -4,20 +4,19 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Globalization;
 using Newtonsoft.Json.Linq;
-using RevitAIProject.Actions;
 
 namespace RevitAIProject.Services
 {
     public static class ActionFactory
     {
-        public static IRevitAction CreateAction(string actionName, JToken data)
+        public static Logic.Actions.IRevitAction CreateAction(string actionName, JToken data)
         {
             if (string.IsNullOrEmpty(actionName)) return null;
 
             // 1. Ищем тип класса в текущей сборке
             Type actionType = Assembly.GetExecutingAssembly()
                 .GetTypes()
-                .Where(t => typeof(IRevitAction).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract)
+                .Where(t => typeof(Logic.Actions.IRevitAction).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract)
                 .FirstOrDefault(t =>
                 {
                     // Убираем "Action" из имени класса для сравнения (MoveAction -> Move)
@@ -36,7 +35,7 @@ namespace RevitAIProject.Services
 
             // 2. Создаем экземпляр экшена
             // Важно: у экшена должен быть пустой конструктор (по умолчанию он есть)
-            IRevitAction action = (IRevitAction)Activator.CreateInstance(actionType);
+            Logic.Actions.IRevitAction action = (Logic.Actions.IRevitAction)Activator.CreateInstance(actionType);
 
             // 3. Заполняем свойства экшена данными из JSON (включая TargetAiName из базы)
             MapJsonToProperties(action, data);
@@ -44,7 +43,7 @@ namespace RevitAIProject.Services
             return action;
         }
 
-        private static void MapJsonToProperties(IRevitAction action, JToken data)
+        private static void MapJsonToProperties(Logic.Actions.IRevitAction action, JToken data)
         {
             if (data == null) return;
 
@@ -57,7 +56,7 @@ namespace RevitAIProject.Services
                 //AiParamAttribute attr = prop.GetCustomAttribute<AiParamAttribute>();
                 //string targetKey = attr != null ? attr.Name : prop.Name;
 
-                var attr = prop.GetCustomAttribute<AiParamAttribute>();
+                var attr = prop.GetCustomAttribute<Logic.AiParamAttribute>();
                 string targetKey = attr?.Name ?? prop.Name; // Ищем "target_ai_name", а не "TargetAiName"
 
                 JToken jsonValue = paramsNode[targetKey] ?? paramsNode[targetKey.ToLower()]
@@ -90,7 +89,7 @@ namespace RevitAIProject.Services
         /// <summary>
         /// Извлекает число и конвертирует его в футы на основе единиц измерения (метрических или имперских)
         /// </summary>
-        private static double ParseToRevitFeet(string input)
+        public static double ParseToRevitFeet(string input)
         {
             if (string.IsNullOrWhiteSpace(input)) return 0;
 

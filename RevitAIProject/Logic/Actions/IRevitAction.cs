@@ -4,11 +4,10 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace RevitAIProject.Services
+namespace RevitAIProject.Logic.Actions
 {
-    public interface IRevitAction
+    public interface IRevitAction: IReviLogic
     {
         string ActionName { get; }
-        void Execute(IRevitApiService apiService);
     }
 }

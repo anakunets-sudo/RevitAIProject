@@ -47,9 +47,11 @@ namespace RevitAIProject.ViewModels
             {
                 _dispatcher.Invoke(() =>
                 {
-                    // Только здесь можно трогать свойства, привязанные к UI
-                    UserInput = text;
-                    IsRecording = false;
+                    // Добавляем текст к уже написанному (с пробелом)
+                    if (string.IsNullOrWhiteSpace(UserInput))
+                        UserInput = text;
+                    else
+                        UserInput += " " + text;
                 });
             };
 
@@ -60,19 +62,16 @@ namespace RevitAIProject.ViewModels
         {
             if (!IsRecording)
             {
-                // МГНОВЕННЫЙ ОБРЫВ: Если ИИ еще думает, отменяем его задачу
-                if (IsBusy)
-                {
-                    _cts?.Cancel();
-                }
-
+                if (IsBusy) _cts?.Cancel();
                 IsRecording = true;
                 _voice.Start();
             }
             else
             {
+                // Мгновенно визуально отключаем запись
                 IsRecording = false;
 
+                // Убиваем процесс в фоне, результат уже и так прилетал в процессе
                 Task.Run(() => _voice.StopAsync());
             }
         }

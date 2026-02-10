@@ -7,7 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace RevitAIProject.Actions
+namespace RevitAIProject.Logic.Actions
 {
     public abstract class BaseRevitAction : IRevitAction
     {
@@ -22,7 +22,7 @@ namespace RevitAIProject.Actions
         public string AssignAiName { get; set; }
 
         // Универсальный метод поиска целей для ВСЕХ наследников
-        protected List<ElementId> ResolveTargets(IActionContext context)
+        protected List<ElementId> ResolveTargets(IRevitContext context)
         {
             var ids = new List<ElementId>();
 
@@ -65,8 +65,6 @@ namespace RevitAIProject.Actions
 
         // ВНУТРЕННИЙ МЕТОД (реализует программист в MoveAction и т.д.)
         // Здесь НЕТ доступа к apiService, только к контексту выполнения
-        protected abstract void Execute(IActionContext context);
-
-
+        protected abstract void Execute(IRevitContext context);
     }
 }

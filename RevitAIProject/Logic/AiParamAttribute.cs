@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace RevitAIProject.Actions
+namespace RevitAIProject.Logic
 {
     [AttributeUsage(AttributeTargets.Property)]
     public class AiParamAttribute : Attribute

@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 
-namespace RevitAIProject.Actions
+namespace RevitAIProject.Logic.Actions
 {
     public class MoveElementAction : BaseRevitAction
     {
@@ -25,7 +25,7 @@ namespace RevitAIProject.Actions
         [AiParam("dz", Description = "Z-offset in mm")]
         public double Dz { get; set; }
 
-        protected override void Execute(IActionContext context)
+        protected override void Execute(IRevitContext context)
         {
             using (Transaction tr = new Transaction(context.UIDoc.Document, TransactionName))
             {

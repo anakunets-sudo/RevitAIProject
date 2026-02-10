@@ -1,6 +1,6 @@
 ﻿using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using RevitAIProject.Actions;
+using RevitAIProject.Logic;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -10,7 +10,7 @@ using System.Runtime.InteropServices;
 namespace RevitAIProject.Services
 {
 
-    public class RevitApiService : IRevitApiService, Actions.IActionContext
+    public class RevitApiService : IRevitApiService, Logic.IRevitContext
     {
         public RevitApiService() : this(new RevitTaskHandler())
         {
@@ -39,8 +39,8 @@ namespace RevitAIProject.Services
         // Это наш "блокнот" для связи имен ИИ с реальными ID Revit
         public Dictionary<string, ElementId> Variables { get; } = new Dictionary<string, ElementId>();
 
-        private readonly List<Action<IActionContext>> _queue = new List<Action<IActionContext>>();
-        public void AddToQueue(Action<IActionContext> task) => _queue.Add(task);
+        private readonly List<Action<IRevitContext>> _queue = new List<Action<IRevitContext>>();
+        public void AddToQueue(Action<IRevitContext> task) => _queue.Add(task);
 
         public void Raise()
         {

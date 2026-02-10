@@ -12,6 +12,6 @@ namespace RevitAIProject.Services
         public string Message { get; set; }
 
         // Список действий, которые ИИ предлагает выполнить
-        public List<IRevitAction> Actions { get; set; } = new List<IRevitAction>();
+        public List<Logic.Actions.IRevitAction> Actions { get; set; } = new List<Logic.Actions.IRevitAction>();
     }
 }

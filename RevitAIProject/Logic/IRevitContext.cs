@@ -7,9 +7,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace RevitAIProject.Actions
+namespace RevitAIProject.Logic
 {
-    public interface IActionContext
+    public interface IRevitContext
     {
         UIApplication UIApp { get; }
         UIDocument UIDoc { get; }
