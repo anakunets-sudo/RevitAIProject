@@ -1,6 +1,7 @@
 ﻿using Newtonsoft.Json.Linq;
 using RevitAIProject.Logic;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
@@ -8,27 +9,24 @@ using System.Text.RegularExpressions;
 
 namespace RevitAIProject.Services
 {
+    /// <summary>
+    /// РОЛЬ: Автоматическое создание экземпляров логики и маппинг параметров из JSON в свойства C# с конвертацией единиц.
+    /// </summary>
     public static class LogicFactory
     {
-        /// <summary>
-        /// Создает экземпляр логики (Action или Query) на основе имени и заполняет его параметры.
-        /// </summary>
         public static IRevitLogic CreateLogic(string actionName, JToken data)
         {
             if (string.IsNullOrEmpty(actionName)) return null;
 
-            // 1. Универсальный поиск типа (ищем любой IRevitLogic с атрибутом [AiParam])
-            Type logicType = Assembly.GetExecutingAssembly()
-                .GetTypes()
+            // 1. Поиск типа по атрибуту [AiParam] или имени класса
+            Type logicType = Assembly.GetExecutingAssembly().GetTypes()
                 .Where(t => typeof(IRevitLogic).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract)
                 .FirstOrDefault(t =>
                 {
-                    // Сначала проверяем атрибут на самом классе (самый надежный способ)
                     var attr = t.GetCustomAttribute<AiParamAttribute>();
                     if (attr != null && actionName.Equals(attr.Name, StringComparison.OrdinalIgnoreCase))
                         return true;
 
-                    // Запасной вариант: проверка по имени класса (GetElementsQuery -> GetElements)
                     string cleanClassName = t.Name.Replace("Action", "").Replace("Query", "");
                     return cleanClassName.Equals(actionName, StringComparison.OrdinalIgnoreCase)
                         || t.Name.Equals(actionName, StringComparison.OrdinalIgnoreCase);
@@ -36,14 +34,13 @@ namespace RevitAIProject.Services
 
             if (logicType == null)
             {
-                System.Diagnostics.Debug.WriteLine($"[ActionFactory]: Logic/Action '{actionName}' not found.");
+                System.Diagnostics.Debug.WriteLine($"[LogicFactory]: Type '{actionName}' not found.");
                 return null;
             }
 
-            // 2. Создаем экземпляр
             IRevitLogic logicInstance = (IRevitLogic)Activator.CreateInstance(logicType);
 
-            // 3. Заполняем свойства данными из JSON
+            // 2. Заполнение свойств данными
             MapJsonToProperties(logicInstance, data);
 
             return logicInstance;
@@ -53,20 +50,18 @@ namespace RevitAIProject.Services
         {
             if (data == null) return;
 
-            // Извлекаем узел параметров из структуры { "name": "...", "Parameters": { ... } }
-            JToken paramsNode = data["Parameters"] ?? data;
+            // Извлекаем узел параметров (поддержка разных структур JSON)
+            JToken paramsNode = data["Parameters"] ?? data["params"] ?? data;
             PropertyInfo[] properties = instance.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
 
             foreach (PropertyInfo prop in properties)
             {
-                // Ищем атрибут AiParam на свойстве
                 var attr = prop.GetCustomAttribute<AiParamAttribute>();
                 if (attr == null) continue;
 
-                // Ищем значение в JSON по имени из атрибута (например, "target_ai_name") или по имени свойства
                 string targetKey = attr.Name ?? prop.Name;
 
-                // Проверяем разные варианты написания ключа (регистронезависимо)
+                // Регистронезависимый поиск ключа
                 JToken jsonValue = paramsNode[targetKey]
                                  ?? paramsNode[targetKey.ToLower()]
                                  ?? paramsNode[targetKey.ToUpper()];
@@ -77,10 +72,10 @@ namespace RevitAIProject.Services
                     {
                         string stringValue = jsonValue.ToString();
 
-                        // Логика конвертации типов для Revit 2019
+                        // Логика конвертации типов (Важно для Revit 2019+)
                         if (prop.PropertyType == typeof(double))
                         {
-                            // Используем твой парсер для перевода в футы
+                            // Пример 1: "offset": "150mm" -> сконвертирует в футы
                             double feetValue = ParseToRevitFeet(stringValue);
                             prop.SetValue(instance, feetValue);
                         }
@@ -94,14 +89,13 @@ namespace RevitAIProject.Services
                         }
                         else
                         {
-                            // Стандартная десериализация для строк и остальных типов
                             object convertedValue = jsonValue.ToObject(prop.PropertyType);
                             prop.SetValue(instance, convertedValue);
                         }
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[Mapping Error]: Property {prop.Name} - {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[Mapping Error]: {prop.Name} - {ex.Message}");
                     }
                 }
             }
@@ -111,7 +105,7 @@ namespace RevitAIProject.Services
         {
             if (string.IsNullOrWhiteSpace(input)) return 0;
 
-            // Поддержка точки и запятой
+            // Очистка строки и парсинг числа
             var match = Regex.Match(input.Replace(',', '.'), @"-?\d+(\.\d+)?");
             if (!match.Success) return 0;
 
@@ -120,14 +114,14 @@ namespace RevitAIProject.Services
 
             string lowerInput = input.ToLower();
 
-            // Конвертация в футы (Internal Revit Units)
+            // Конвертация в Internal Revit Units (Футы)
             if (lowerInput.Contains("mm") || lowerInput.Contains("мм")) return value / 304.8;
             if (lowerInput.Contains("cm") || lowerInput.Contains("см")) return value / 30.48;
             if (lowerInput.Contains("m") || lowerInput.Contains("м")) return value / 0.3048;
             if (lowerInput.Contains("in") || lowerInput.Contains("\"")) return value / 12.0;
             if (lowerInput.Contains("ft") || lowerInput.Contains("'")) return value;
 
-            // По умолчанию - миллиметры
+            // По умолчанию считаем, что ИИ прислал миллиметры
             return value / 304.8;
         }
     }

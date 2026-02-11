@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace RevitAIProject.Logic
 {
-    [AttributeUsage(AttributeTargets.Property)]
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Property)]
     public class AiParamAttribute : Attribute
     {
         public string Name { get; }

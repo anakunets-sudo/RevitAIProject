@@ -10,10 +10,10 @@ using System.Windows.Controls;
 
 namespace RevitAIProject.Logic.Actions
 {
+    [AiParam("MoveElement", Description = "Moves elements along X, Y, Z axes using millimeters.")]
     public class MoveElementAction : BaseRevitAction
     {
         [AiParam("MoveElement", Description = "Moves elements along X, Y, Z axes using millimeters.")]
-        public override string Name => "MoveElement";
         public string Target_ai_name { get; set; }
 
         [AiParam("dx", Description = "X-offset in mm")]

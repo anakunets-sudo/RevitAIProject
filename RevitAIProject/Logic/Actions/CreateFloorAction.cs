@@ -8,11 +8,9 @@ using System.Linq;
 
 namespace RevitAIProject.Logic.Actions
 {
+    [AiParam("CreateFloor", Description = "Creates a floor with an up (+) or down (-) offset, or an offset of 0 if the user does not specify one.")]
     public class CreateFloorAction : BaseRevitAction
     {
-        [AiParam("CreateFloor", Description = "Creates a floor with an up (+) or down (-) offset, or an offset of 0 if the user does not specify one.")]
-        public override string Name => "CreateFloor";
-
         [AiParam("offset", Description = "The offset can be up (+) and down (-)")]
         public double OffsetFt { get; set; }
 
@@ -81,8 +79,7 @@ namespace RevitAIProject.Logic.Actions
 
                         Floor floor = doc.Create.NewFloor(profile, fType, level, false);
 
-                        if (!string.IsNullOrEmpty(AssignAiName))
-                            context.SessionContext.Store(AssignAiName, floor.Id);
+                        RegisterCreatedElement(context, new ElementId[] { floor.Id });
 
                         tr.Commit();
 

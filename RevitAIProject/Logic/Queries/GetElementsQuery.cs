@@ -12,17 +12,12 @@ using System.Windows;
 
 namespace RevitAIProject.Logic.Queries
 {
+    /*
+    [AiParam("GetElements", Description = "Universal search. Use ClassName, CategoryId, or FilterJson for parameters.")]
     public class GetElementsQuery : BaseRevitQuery
     {
-        [AiParam("GetElements", Description = "Universal search. Use ClassName, CategoryId, or FilterJson for parameters.")]
-        public override string Name => "GetElements";
-
         [AiParam("targetClass", Description = "Revit class name: Wall, Floor, FamilyInstance, etc.")]
         public string ClassName { get; set; }
-
-        // 2. Поиск по ID категории (надежнее, чем строка)
-        [AiParam("categoryId", Description = "The long value of the BuiltInCategory ID (e.g., -2000011 for Walls)")]
-        public long CategoryId { get; set; }
 
         // ВОТ ОН - Универсальный вход для сотен фильтров
         [AiParam("filterJson", Description = "JSON rules for parameters: [{'param':'Mark', 'op':'Equals', 'val':'A101'}]")]
@@ -30,10 +25,10 @@ namespace RevitAIProject.Logic.Queries
 
         protected override void Execute(IRevitContext context)
         {
-            Debug.WriteLine($"ClassName - {ClassName}, CategoryId - {CategoryId}, FilterJson - {FilterJson}\n", "GetElementsQuery Data");
+            Debug.WriteLine($"ClassName - {ClassName}, CategoryName - {CategoryName}, FilterJson - {FilterJson}\n", "GetElementsQuery Data");
 
             var doc = context.UIDoc.Document;
-            var collector = new FilteredElementCollector(doc);
+            var collector = new FilteredElementCollector(doc, doc.ActiveView.Id);
 
             // 1. Быстрый фильтр по классу
             if (!string.IsNullOrEmpty(ClassName))
@@ -47,30 +42,30 @@ namespace RevitAIProject.Logic.Queries
                 Debug.WriteLine($"ClassName - {d}\n", "collector ClassName");
             }
 
-            // 2. Быстрый фильтр по категории
-            if (CategoryId != 0)
-            {
-                collector = new FilteredElementCollector(doc, doc.ActiveView.Id).OfCategory((BuiltInCategory)(int)CategoryId);//в int только для Ревит ниже 25
+            var bic = ResolveCategory();
 
-                Debug.WriteLine($"CategoryId - {collector.ToElementIds().Count().ToString()}\n", "collector CategoryId");
+            // 2. Быстрый фильтр по категории
+            if (bic != BuiltInCategory.INVALID)
+            {
+                collector.OfCategory(bic);
+
+                Debug.WriteLine($"Searching for category: {bic}", "GetElementsQuery");
             }
 
             // 3. Умный фильтр по параметрам
             if (!string.IsNullOrEmpty(FilterJson))
             {
-                // Приводим CategoryId к BuiltInCategory для билдера
-                BuiltInCategory bic = (BuiltInCategory)CategoryId;
                 ElementFilter dynamicFilter = FilterJsonBuilder.Build(doc, FilterJson, bic);
                 if (dynamicFilter != null) collector = new FilteredElementCollector(doc).WherePasses(dynamicFilter);
 
                 Debug.WriteLine($"FilterJson - {collector.Count().ToString()}\n", "collector FilterJson");
             }
 
-            context.SessionContext.Store(collector.ToElementIds());
+            RegisterFoundedElements(context, collector.ToElementIds());
 
-            //MessageBox.Show(context.SessionContext.LastFoundIds.Count.ToString());
+            Debug.WriteLine($"{collector.ToElementIds().Count().ToString()}\n");
 
-            Debug.WriteLine($"context.SessionContext - {context.SessionContext.LastFoundIds.Count}\n", "context.SessionContext");
+            Debug.WriteLine($"context.SessionContext - {context.SessionContext.Storage.Count}\n", "context.SessionContext");
 
         }
 
@@ -86,4 +81,5 @@ namespace RevitAIProject.Logic.Queries
                 .FirstOrDefault(t => t.Name.Equals(className, StringComparison.OrdinalIgnoreCase));
         }
     }
+    */
 }

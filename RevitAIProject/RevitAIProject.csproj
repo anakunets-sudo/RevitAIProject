@@ -107,6 +107,9 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Logic\Actions\GetLevelsAction.cs" />
+    <Compile Include="Logic\Actions\SelectElementsAction.cs" />
+    <Compile Include="Logic\Actions\SelectExceptAction.cs" />
     <Compile Include="Logic\AiParamAttribute.cs" />
     <Compile Include="Logic\Actions\CreateFloorAction.cs" />
     <Compile Include="Logic\Actions\BaseRevitAction.cs" />
@@ -116,8 +119,14 @@
     <Compile Include="Logic\IRevitContext.cs" />
     <Compile Include="Logic\IRevitLogic.cs" />
     <Compile Include="Logic\Queries\BaseRevitQuery.cs" />
+    <Compile Include="Logic\Queries\ByCategoryQuery.cs" />
+    <Compile Include="Logic\Queries\ByClassQuery.cs" />
+    <Compile Include="Logic\Queries\ByLevelQuery.cs" />
+    <Compile Include="Logic\Queries\ByParamJsonQuery.cs" />
     <Compile Include="Logic\Queries\FilterJsonBuilder.cs" />
     <Compile Include="Logic\Queries\GetElementsQuery.cs" />
+    <Compile Include="Logic\Queries\InitActiveViewQuery.cs" />
+    <Compile Include="Logic\Queries\InitGlobalQuery.cs" />
     <Compile Include="Logic\Queries\IRevitQuery.cs" />
     <Compile Include="Services\SessionContext.cs" />
     <Compile Include="Services\VoiceService.cs" />

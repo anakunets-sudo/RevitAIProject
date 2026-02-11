@@ -8,7 +8,6 @@ namespace RevitAIProject.Logic
 {
     public interface IRevitLogic
     {
-        string Name { get; }
         void Execute(RevitAIProject.Services.IRevitApiService apiService);
     }
 }

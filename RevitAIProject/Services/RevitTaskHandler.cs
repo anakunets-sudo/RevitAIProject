@@ -7,15 +7,11 @@ namespace RevitAIProject.Services
 {
     public class RevitTaskHandler : IExternalEventHandler
     {
-        public RevitTaskHandler(TaskCompletionSource<bool> tcs)
-        {
-            _tcs = tcs;
-        }
 
         // Очередь действий для выполнения
         private readonly Queue<Action<UIApplication>> _actions = new Queue<Action<UIApplication>>();
         private readonly object _lock = new object();
-        private TaskCompletionSource<bool> _tcs;
+        private TaskCompletionSource<object> _tcs;
 
         public void Enqueue(Action<UIApplication> action)
         {
@@ -27,8 +23,6 @@ namespace RevitAIProject.Services
 
         public void Execute(UIApplication app)
         {
-            _tcs = new TaskCompletionSource<bool>();
-
             Action<UIApplication> action = null;
 
             lock (_lock)
@@ -45,14 +39,19 @@ namespace RevitAIProject.Services
                 try
                 {
                     action(app);
+
+                    _tcs?.TrySetResult(null);
                 }
                 catch (Exception ex)
                 {
-                    TaskDialog.Show("Revit AI Error", ex.Message);
+                    _tcs?.TrySetException(ex);
                 }
-
-                _tcs?.TrySetResult(true);
             }
+        }
+        public Task PrepareTask()
+        {
+            _tcs = new TaskCompletionSource<object>();
+            return _tcs.Task;
         }
 
         public string GetName()

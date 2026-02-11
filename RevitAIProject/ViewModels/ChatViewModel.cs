@@ -1,11 +1,14 @@
 ﻿using GalaSoft.MvvmLight;
 using GalaSoft.MvvmLight.Command;
 using Newtonsoft.Json;
+using RevitAIProject.Logic;
+using RevitAIProject.Logic.Actions;
+using RevitAIProject.Logic.Queries; // Добавили пространство имен для запросов
 using RevitAIProject.Services;
 using RevitAIProject.Views;
-using RevitAIProject.Logic.Queries; // Добавили пространство имен для запросов
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -73,18 +76,18 @@ namespace RevitAIProject.ViewModels
         {
             if (string.IsNullOrWhiteSpace(UserInput)) return;
 
-            _cts?.Cancel();
-            _cts?.Dispose();
-            _cts = new CancellationTokenSource();
-
-            string userRequest = UserInput;
-            AddFormattedMessage(userRequest, RevitMessageType.User);
-
-            IsBusy = true;
-            AddFormattedMessage("Думаю...", RevitMessageType.Ai);
-
             try
             {
+                _cts?.Cancel();
+                _cts?.Dispose();
+                _cts = new CancellationTokenSource();
+
+                string userRequest = UserInput;
+                AddFormattedMessage(userRequest, RevitMessageType.User);
+
+                IsBusy = true;
+                AddFormattedMessage("Думаю...", RevitMessageType.Ai);
+
                 // Шаг 1: Первичный запрос к ИИ
                 var aiResult = await _ollamaService.GetAiResponseAsync(userRequest, _cts.Token);
                 UserInput = string.Empty;
@@ -101,21 +104,46 @@ namespace RevitAIProject.ViewModels
                     // Выводим предварительное сообщение (напр. "Проверяю стены...")
                     AddFormattedMessage(aiResult.Message, RevitMessageType.Ai);
 
+                    _revitApiService.SessionContext.Reset();
+
                     // Шаг 2: Выполнение действий
                     foreach (var action in aiResult.Actions)
                     {
                         action.Execute(_revitApiService);
                     }
 
-                    await _revitApiService.RaiseAsync();                    
+                    // Теперь await ДЕЙСТВИТЕЛЬНО остановит выполнение метода
+                    // до тех пор, пока в RevitTaskHandler не сработает SetResult
+                    await _revitApiService.RaiseAsync();
 
-                    var foundCount = _revitApiService.SessionContext.LastFoundIds.Count;
+                    // Шаг 3: Собираем детальный отчет с привязкой к категориям
+                    var storage = _revitApiService.SessionContext.Storage;
 
-                    MessageBox.Show(foundCount.ToString());
+                    // Сопоставляем ключи из хранилища с тем, что запрашивал ИИ в текущем ходу
+                    var reportDetails = new List<string>();
+                    foreach (var kvp in storage)
+                    {
+                        // Теперь мы ищем среди объектов IRevitLogic, так как добавили свойства в базу
+                        var originalAction = aiResult.Actions.Where(e=>e is IRevitQuery)?
+                            .Cast<IRevitQuery>() // Приводим к базовому классу
+                            .FirstOrDefault(a => a.SearchAiName == kvp.Key);
 
-                    // Формируем системный отчет для ИИ
-                    string feedbackPrompt = $"SYSTEM_REPORT: 'GetElements' finished. Found: {foundCount} elements. " +
-                                            $"They are saved in LAST_QUERY_RESULT. Answer the user's question: '{userRequest}'";
+                        string categoryInfo = "";
+                        if (originalAction != null && !string.IsNullOrEmpty(originalAction.CategoryName))
+                        {
+                            categoryInfo = $" ({originalAction.CategoryName})";
+                        }
+
+                        reportDetails.Add($"{kvp.Key}{categoryInfo}: {kvp.Value.Count} elements");
+                    }
+
+                    string detailedSummary = string.Join(", ", reportDetails);
+
+                    // Формируем системный отчет. Теперь ИИ увидит: "$q1 (OST_Floors): 1 elements, $q2 (OST_Walls): 10 elements"
+                    string feedbackPrompt = $"SYSTEM_REPORT: Actions completed. " +
+                                            $"Storage contents: [{detailedSummary}]. " +
+                                            $"User request: '{userRequest}'. " +
+                                            $"Answer clearly based on the storage data above.";
 
                     var finalAiResponse = await _ollamaService.GetAiResponseAsync(feedbackPrompt, _cts.Token);
 

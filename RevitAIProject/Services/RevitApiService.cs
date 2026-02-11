@@ -18,7 +18,7 @@ namespace RevitAIProject.Services
     {
         public RevitApiService()
         {
-            _handler = new RevitTaskHandler(_tcs);
+            _handler = new RevitTaskHandler();
             _externalEvent = ExternalEvent.Create(_handler);
             SessionContext = new SessionContext();
         }
@@ -55,31 +55,39 @@ namespace RevitAIProject.Services
 
         private readonly List<Action<IRevitContext>> _queue = new List<Action<IRevitContext>>();
         public void AddToQueue(Action<IRevitContext> task) => _queue.Add(task);
-        
+
         /// <summary>
         /// РОЛЬ: Подготавливае очедедь заданий, которые формируют, например, классы реализующие интерфейс RevitAIProject.LogicIRevitLogic. В завершении ExternalEvent выполняет Raise().
         /// </summary>
-        public Task RaiseAsync()
+        public async Task RaiseAsync()
         {
-            _tcs = new TaskCompletionSource<bool>();
+            if (_queue.Count == 0) return;
 
             var tasks = _queue.ToList();
 
             _queue.Clear();
 
+            // 1. Инициализируем ожидание в хендлере
+            // Метод PrepareTask должен вернуть _tcs.Task внутри RevitTaskHandler
+            var completionTask = _handler.PrepareTask();
+
+            // 2. Ставим команды в очередь хендлера
             _handler.Enqueue(uiApp => {
 
-                this.UIApp = uiApp; // Устанавливаем текущий контекст
+                this.UIApp = uiApp;
+                this.UIDoc = uiApp.ActiveUIDocument;
 
-                this.UIDoc = UIApp.ActiveUIDocument; // Устанавливаем текущий контекст
-
-                foreach (var task in tasks) task(this); // Передаем 'this' как IActionContext
-
+                foreach (var task in tasks)
+                {
+                    task(this);
+                }
             });
 
+            // 3. Запускаем событие Revit
             _externalEvent.Raise();
 
-            return _tcs.Task;
+            // 4. КРИТИЧЕСКИЙ МОМЕНТ: Ждем, пока Revit выполнит Execute и вызовет SetResult
+            await completionTask;
         }
     }
 }

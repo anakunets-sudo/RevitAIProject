@@ -22,53 +22,61 @@ namespace RevitAIProject.Services
             _httpClient = new HttpClient();
             _httpClient.Timeout = TimeSpan.FromMinutes(5);
         }
+
         private string GetSystemInstructions()
         {
             StringBuilder sb = new StringBuilder();
 
             // 1. ROLE & CORE MISSION
-            sb.Append("### ROLE: Revit 2019 AI Automation Agent. ");
-            sb.Append("### TASK: Convert user intent into a sequence of Revit API commands. ");
-            sb.Append("### EXECUTION RULE: If the user wants to 'find', 'count', 'show' or 'check' elements, you MUST use the 'GetElements' command first. ");
-            sb.Append("### IMPORTANT: When you return a 'GetElements' action, your 'message' field should ONLY describe the intent (e.g., 'Searching for windows...'). ");
-            sb.Append("DO NOT try to guess the count. Wait for the SYSTEM REPORT in the next turn to give the final answer. ");
+            sb.Append("### ROLE: Revit 2019 AI Automation Agent (C# 7.3 / Revit API). ");
+            sb.Append("### CORE MISSION: Convert user intent into Revit API Commands (Actions or Queries). ");
 
-            // 2. STRICT FORMATTING (Crucial for Ollama stability)
+            // 2. ПРАВИЛО ВНУТРЕННЕГО ПЕРЕВОДА & КАТЕГОРИЙ
+            sb.Append("### STEP 0: MANDATORY CATEGORY PROTOCOL. ");
+            sb.Append("1. Before any analysis, ALWAYS translate the user's message into ENGLISH in your thought process. ");
+            sb.Append("2. ALWAYS translate the user's element request into English (e.g., 'окна' -> 'Windows'). ");
+            sb.Append("3. For 'categoryName', ALWAYS use the official Revit BuiltInCategory string starting with 'OST_'. ");
+            sb.Append("Example: 'walls' -> 'OST_Walls', 'windows' -> 'OST_Windows', 'doors' -> 'OST_Doors'. ");
+
+            // 3. ПРАВИЛО ОБРАБОТКИ ПУСТОГО РЕЗУЛЬТАТА
+            sb.Append("### STEP 1: EMPTY RESULTS PROTOCOL. ");
+            sb.Append("If the 'SYSTEM_REPORT' states that 0 elements were found, YOU MUST NOT REPEAT THE SEARCH COMMAND. ");
+            sb.Append("Instead, provide a final text response in the user's language stating that nothing was found. ");
+
+            // 4. STRICT FORMATTING
             sb.Append("### RESPONSE FORMAT RULES: ");
-            sb.Append("1. Respond ONLY with a raw JSON object. ");
-            sb.Append("2. PROHIBITED: No markdown code blocks (```json), no conversational preambles (e.g., 'Sure!', 'I will help'). ");
-            sb.Append("3. LANGUAGE: Write the 'message' field in the user's language. All technical names (Command names, Parameter keys) MUST be in ENGLISH. ");
-            sb.Append("2. Detect user language. Write 'message' in the SAME language as the user. ");
+            sb.Append("1. Respond ONLY with a raw JSON object. No markdown code blocks (```json). ");
+            sb.Append("2. PROHIBITED: No conversational preambles (e.g., 'Sure!', 'I will help'). ");
+            sb.Append("3. Detect user language. Write 'message' in the SAME language as the user. ");
 
-            // 3. CONTEXT & MEMORY (Session Management)
-            sb.Append("### VARIABLE SYSTEM ($): ");
-            sb.Append("1. To label a NEW element for later use, invent a name starting with '$' (e.g., '$f1') and put it in 'assign_ai_name'. ");
-            sb.Append("2. To refer to that element in later actions, put its name (e.g., '$f1') in 'target_ai_name'. ");
-            sb.Append("3. SELECTION: If the user refers to 'this', 'selected' or 'current', leave 'target_ai_name' EMPTY to use the current Revit selection. ");
-            // 3. CONTEXT & MEMORY
-            sb.Append("### SESSION CONTEXT: ");
-            // Явно связываем техническое поле с понятием для ИИ
-            sb.Append("1. Search results are stored in a system variable called 'LAST_QUERY_RESULT' (maps to LastFoundIds). ");
-            sb.Append("2. If 'LAST_QUERY_RESULT' contains elements, I will inform you with 'SYSTEM: [Count] elements found'. ");
-            sb.Append("3. To perform actions (like Move, Delete, Parameter set) on these elements, set 'target_ai_name': 'LAST_QUERY_RESULT'. ");
+            // 5. ХРАНИЛИЩЕ ДАННЫХ (SESSION CONTEXT & CHAINING)
+            sb.Append("### SESSION STORAGE (Context Management): ");
+            sb.Append("1. 'storage': Use unique keys starting with '$q' for searches (e.g., '$q1' for windows, '$q2' for walls). ");
+            sb.Append("2. To act on elements found in a previous step, set 'target_ai_name' to the corresponding key (e.g., '$q1'). ");
+            sb.Append("3. For new elements, use 'assign_ai_name' with '$f' prefix (e.g., '$f1'). ");
+            sb.Append("4. If multiple categories are requested, generate multiple 'GetElements' actions with unique 'search_ai_name' keys. ");
 
-            // 4. PARAMETERS & FILTERS (C# 7.3 Compatibility)
-            sb.Append("### PARAMETER RULES: ");
-            sb.Append("1. 'filterJson' must be a double-escaped JSON string of rules. Example: \"[{\\\"p\\\":\\\"Level\\\",\\\"o\\\":\\\"equals\\\",\\\"v\\\":\\\"Level 1\\\"}]\". ");
-            sb.Append("2. Operators: equals, notequals, greater, less, contains. ");
-            sb.Append("3. Units: Always include units in values if provided (e.g., '300mm', '1500mm', '10ft'). ");
+            // 6. EXECUTION STRATEGY
+            sb.Append("### EXECUTION STRATEGY: ");
+            sb.Append("1. [QUERIES]: Use 'GetElements' for 'Find', 'Count', 'Select'. ALWAYS provide 'search_ai_name'. ");
+            sb.Append("2. [ACTIONS]: Use Action commands for 'Create', 'Move', 'Delete', 'SelectElements'. ");
+            sb.Append("3. [CHAINING]: You can search and then act in one turn. Example: [Action1: GetElements($q1), Action2: SelectElements(target:$q1)]. ");
 
-            // 5. DYNAMIC COMMANDS (Reflection-based)
-            sb.Append("### AVAILABLE COMMANDS: ");
+            // 7. ДИНАМИЧЕСКИЕ КОМАНДЫ (Reflection-based)
+            sb.Append("### AVAILABLE COMMANDS & PARAMETERS: ");
             sb.Append(GetDynamicCommandsDescription());
 
-            // 6. UNIFIED OUTPUT SCHEMA (The most important part)
-            sb.Append("### FINAL SCHEMA (ACTIONS ONLY): ");
-            sb.Append("All operations (Queries and Actions) MUST be items in the 'actions' array. Use this EXACT structure: ");
+            // 8. ПРАВИЛА ПАРАМЕТРОВ
+            sb.Append("### PARAMETER RULES: ");
+            sb.Append("1. UNITS: Always include units for 'double' types (e.g., '300mm', '10ft'). ");
+            sb.Append("2. FILTERS: 'filterJson' must be a double-escaped JSON string. ");
+
+            // 9. ФОРМАТ ОТВЕТА (Strict JSON Schema)
+            sb.Append("### RESPONSE SCHEMA: ");
             sb.Append("{ ");
-            sb.Append("  \"message\": \"User-friendly description of what you are doing\", ");
+            sb.Append("  \"message\": \"Description in user language\", ");
             sb.Append("  \"actions\": [ ");
-            sb.Append("    { \"name\": \"CommandName\", \"Parameters\": { \"key1\": \"value1\", \"key2\": \"value2\" } } ");
+            sb.Append("    { \"action\": \"CommandName\", \"params\": { \"categoryName\": \"OST_Walls\", \"search_ai_name\": \"$q1\" } } ");
             sb.Append("  ] ");
             sb.Append("} ");
 
@@ -80,40 +88,43 @@ namespace RevitAIProject.Services
             StringBuilder sb = new StringBuilder();
 
             // Example 1: Basic Counting (Query)
+            // Переход на OST_Walls и именование через $q1
             sb.AppendLine("User: 'How many walls are in the project?'");
-            sb.AppendLine(@"Response: { ""message"": ""I am counting all walls in the project."", ""actions"": [ { ""name"": ""GetElements"", ""Parameters"": { ""categoryId"": -2000011 } } ] }");
+            sb.AppendLine(@"Response: { ""message"": ""Searching for all walls in the project..."", ""actions"": [ { ""action"": ""GetElements"", ""params"": { ""categoryName"": ""OST_Walls"", ""search_ai_name"": ""$q1"" } } ] }");
 
             // Example 2: Filtering by Parameter (Complex Query)
+            // Использование OST_Doors и строкового имени категории
             sb.AppendLine("User: 'Find all doors on Level 1'");
-            sb.AppendLine(@"Response: { ""message"": ""Searching for doors on Level 1."", ""actions"": [ { ""name"": ""GetElements"", ""Parameters"": { ""categoryId"": -2000023, ""filterJson"": ""[{\""p\"":\""Level\"",\""o\"":\""equals\"",\""v\"":\""Level 1\""}]"" } } ] }");
+            sb.AppendLine(@"Response: { ""message"": ""Searching for doors on Level 1."", ""actions"": [ { ""action"": ""GetElements"", ""params"": { ""categoryName"": ""OST_Doors"", ""search_ai_name"": ""$q1"", ""filterJson"": ""[{\""p\"":\""Level\"",\""o\"":\""equals\"",\""v\"":\""Level 1\""}]"" } } ] }");
 
-            // Example 3: Sequence Query -> Action (Using LAST_QUERY_RESULT)
+            // Example 3: Sequence Query -> Action (Using storage)
+            // Связка: Найти в $q1 -> Удалить содержимое $q1
             sb.AppendLine("User: 'Find 300mm walls and delete them'");
             sb.AppendLine(@"Response: { ""message"": ""Finding 300mm walls and deleting them from the model."", ""actions"": [ " +
-                          @"{ ""name"": ""GetElements"", ""Parameters"": { ""categoryId"": -2000011, ""filterJson"": ""[{\""p\"":\""Width\"",\""o\"":\""equals\"",\""v\"":\""300mm\""}]"" } }, " +
-                          @"{ ""name"": ""DeleteElements"", ""Parameters"": { ""target_ai_name"": ""LAST_QUERY_RESULT"" } } ] }");
+                          @"{ ""action"": ""GetElements"", ""params"": { ""categoryName"": ""OST_Walls"", ""search_ai_name"": ""$q1"", ""filterJson"": ""[{\""p\"":\""Width\"",\""o\"":\""equals\"",\""v\"":\""300mm\""}]"" } }, " +
+                          @"{ ""action"": ""DeleteElements"", ""params"": { ""target_ai_name"": ""$q1"" } } ] }");
 
-            // Example 4: View-specific search
-            sb.AppendLine("User: 'Count windows in this view'");
-            sb.AppendLine(@"Response: { ""message"": ""Counting windows on the current view."", ""actions"": [ { ""name"": ""GetElements"", ""Parameters"": { ""categoryId"": -2000014, ""viewScoped"": ""true"" } } ] }");
+            // Example 4: Создание с именованием ($f1)
+            sb.AppendLine("User: 'Плита со смещением 500 мм'");
+            sb.AppendLine(@"Response: { ""message"": ""Создаю перекрытие ($f1) со смещением 500мм."", ""actions"": [ { ""action"": ""CreateFloor"", ""params"": { ""assign_ai_name"": ""$f1"", ""offset"": ""500mm"" } } ] }");
 
-            // Пример 5: Создание с именованием ($id)
-            sb.AppendLine("User: 'Плита со смещением 500 дюймов'");
-            sb.AppendLine("Response: { \"message\": \"Создаю перекрытие ($f1) со смещением 500 дюймов.\", \"actions\": [ { \"name\": \"CreateFloor\", \"Parameters\": { \"assign_ai_name\": \"$f1\", \"offset\": \"500in\" } } ] }");
-
-            // Пример 6: Цепочка (Создание + Перемещение)
+            // Example 5: Цепочка (Создание + Перемещение)
+            // Использование созданной переменной $f1 во второй команде
             sb.AppendLine("User: 'Создай пол и сдвинь его влево на 1 метр'");
-            sb.AppendLine("Response: { \"message\": \"Создаю пол ($f1) и сдвигаю его на 1000мм влево.\", \"actions\": [ " +
-                          "{ \"name\": \"CreateFloor\", \"Parameters\": { \"assign_ai_name\": \"$f1\", \"offset\": \"0mm\" } }, " +
-                          "{ \"name\": \"MoveElement\", \"Parameters\": { \"target_ai_name\": \"$f1\", \"dx\": -1000мм, \"dy\": 0, \"dz\": 0 } } ] }");
+            sb.AppendLine(@"Response: { ""message"": ""Создаю пол ($f1) и сдвигаю его на 1 метр влево."", ""actions"": [ " +
+                          @"{ ""action"": ""CreateFloor"", ""params"": { ""assign_ai_name"": ""$f1"", ""offset"": ""0mm"" } }, " +
+                          @"{ ""action"": ""MoveElement"", ""params"": { ""target_ai_name"": ""$f1"", ""dx"": ""-1000mm"", ""dy"": ""0mm"", ""dz"": ""0mm"" } } ] }");
 
-            // Пример 7: Работа с выделением (пустой target_ai_name)
+            // Example 6: Работа с выделением (пустой target_ai_name)
             sb.AppendLine("User: 'Сдвинь это вверх на 200мм'");
-            sb.AppendLine("Response: { \"message\": \"Сдвигаю выбранный элемент на 200мм вверх.\", \"actions\": [ { \"name\": \"MoveElement\", \"Parameters\": { \"target_ai_name\": \"\", \"dx\": 0, \"dy\": 200, \"dz\": 0 } } ] }");
+            sb.AppendLine(@"Response: { ""message"": ""Сдвигаю выбранный элемент на 200мм вверх."", ""actions"": [ { ""action"": ""MoveElement"", ""params"": { ""target_ai_name"": """", ""dx"": ""0mm"", ""dy"": ""200mm"", ""dz"": ""0mm"" } } ] }");
 
-            // Пример 8: Работа с выделением (пустой target_ai_name)
-            sb.AppendLine("User: 'Сдвинь это вверх по уровню на 200см'");
-            sb.AppendLine("Response: { \"message\": \"Сдвигаю выбранный элемент на 200см по уровню вверх.\", \"actions\": [ { \"name\": \"MoveElement\", \"Parameters\": { \"target_ai_name\": \"\", \"dx\": 0, \"dy\": 200см, \"dz\": 0 } } ] }");
+            // Example 7: Несколько категорий сразу (Множественный поиск)
+            // Демонстрируем ИИ, как разделять окна и стены по разным ключам
+            sb.AppendLine("User: 'Найди все окна и все стены'");
+            sb.AppendLine(@"Response: { ""message"": ""Ищу все окна и стены в проекте."", ""actions"": [ " +
+                          @"{ ""action"": ""GetElements"", ""params"": { ""categoryName"": ""OST_Windows"", ""search_ai_name"": ""$q1"" } }, " +
+                          @"{ ""action"": ""GetElements"", ""params"": { ""categoryName"": ""OST_Walls"", ""search_ai_name"": ""$q2"" } } ] }");
 
             return sb.ToString();
         }
@@ -193,43 +204,38 @@ namespace RevitAIProject.Services
         {
             var sb = new StringBuilder();
 
-            // 1. Ищем ВСЕ классы в сборке, у которых есть атрибут [AiParam] на самом классе
-            // Это позволит нам не привязываться к интерфейсам и видеть оба неймспейса (Actions и Queries)
+            // --- СЕКЦИЯ 1: КОМАНДЫ (Actions & Queries из Примеров 1 и 2) ---
+            sb.AppendLine("### AVAILABLE COMMANDS (JSON 'actions' list):");
             var commandTypes = Assembly.GetExecutingAssembly().GetTypes()
-                .Where(t => t.IsClass && !t.IsAbstract && t.GetCustomAttribute<Logic.AiParamAttribute>() != null);
+                .Where(t => t.IsClass && !t.IsAbstract && t.GetCustomAttribute<Logic.AiParamAttribute>() != null
+                       && !t.Name.Contains("SessionContext")); // Исключаем сам контекст из списка команд
 
             foreach (var type in commandTypes)
             {
-                // Получаем атрибут самого класса (описание команды)
                 var classAttr = type.GetCustomAttribute<Logic.AiParamAttribute>();
-
-                string cmdName = classAttr.Name;
-                string cmdDesc = classAttr.Description ?? "No description provided.";
-
-                // Определяем тип команды для подсказки ИИ (Action или Query)
                 string category = typeof(Logic.Queries.IRevitQuery).IsAssignableFrom(type) ? "[QUERY]" : "[ACTION]";
 
-                sb.AppendLine($"- **{cmdName}** {category}: {cmdDesc}");
+                sb.AppendLine($"- **{classAttr.Name}** {category}: {classAttr.Description}");
 
-                // 2. Собираем параметры этого класса (свойства с атрибутом [AiParam])
-                var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                                .Where(p => p.GetCustomAttribute<Logic.AiParamAttribute>() != null);
-
+                // Собираем параметры свойств (например, offset из Примера 1)
+                var props = type.GetProperties().Where(p => p.GetCustomAttribute<Logic.AiParamAttribute>() != null);
                 foreach (var prop in props)
                 {
                     var pAttr = prop.GetCustomAttribute<Logic.AiParamAttribute>();
-
-                    // Если в атрибуте свойства имя не указано, берем имя самого свойства в коде
-                    string pName = string.IsNullOrWhiteSpace(pAttr.Name) ? prop.Name : pAttr.Name;
-                    string pDesc = pAttr.Description ?? "No description provided.";
-
-                    // Добавляем информацию о типе данных, чтобы ИИ знал, слать строку или число
-                    string pType = prop.PropertyType.Name;
-
-                    sb.AppendLine($"  * {pName} ({pType}): {pDesc}");
+                    sb.AppendLine($"  * {pAttr.Name} ({prop.PropertyType.Name}): {pAttr.Description}");
                 }
+                sb.AppendLine();
+            }
 
-                sb.AppendLine(); // Разделитель для читаемости промпта
+            // --- СЕКЦИЯ 2: ХРАНИЛИЩЕ (SessionContext из Примера 3) ---
+            sb.AppendLine("### DATA STORAGE (Where results are saved):");
+            var contextProps = typeof(Services.SessionContext).GetProperties()
+                .Where(p => p.GetCustomAttribute<Logic.AiParamAttribute>() != null);
+
+            foreach (var prop in contextProps)
+            {
+                var attr = prop.GetCustomAttribute<Logic.AiParamAttribute>();
+                sb.AppendLine($"- {attr.Name}: {attr.Description}");
             }
 
             return sb.ToString();
@@ -237,32 +243,36 @@ namespace RevitAIProject.Services
 
         private AiResponse ParseToAiResponse(string rawJson)
         {
-            var result = new AiResponse { Actions = new List<Logic.IRevitLogic>() };
+            var result = new AiResponse { Message = "", Actions = new List<Logic.IRevitLogic>() };
             try
             {
-                string json = CleanJson(rawJson); // Чистим от мусора
+                string json = CleanJson(rawJson);
                 JObject data = JObject.Parse(json);
 
-                // Используем Case-Insensitive доступ
-                result.Message = (data.GetValue("message", StringComparison.OrdinalIgnoreCase) ?? "Command processed.").ToString();
+                result.Message = data.SelectToken("$.message")?.ToString() ?? "Processing...";
 
-                var actionsArray = data.GetValue("actions", StringComparison.OrdinalIgnoreCase) as JArray;
+                var actionsArray = data.SelectToken("$.actions") as JArray;
                 if (actionsArray != null)
                 {
-                    foreach (JToken token in actionsArray)
+                    foreach (JObject token in actionsArray)
                     {
-                        // Ищем имя команды, не боясь разного регистра
-                        string actionName = (token["name"] ?? token["Name"])?.ToString();
+                        // В твоем JSON обычно ключ "action", а не "name"
+                        string actionName = (token["action"] ?? token["Action"] ?? token["name"])?.ToString();
 
-                        // Передаем весь токен в фабрику
-                        var action = LogicFactory.CreateLogic(actionName, token);
-                        if (action != null) result.Actions.Add(action);
+                        // Извлекаем блок "params" (например, { "offset": 100 })
+                        var parameters = token["params"] ?? token["Params"];
+
+                        // Фабрика создает объект и СРАЗУ заполняет его свойства через рефлексию (используя AiParam)
+                        var logicInstance = LogicFactory.CreateLogic(actionName, parameters);
+
+                        if (logicInstance != null)
+                            result.Actions.Add(logicInstance);
                     }
                 }
             }
             catch (Exception ex)
             {
-                result.Message = "JSON Parse Error: " + ex.Message;
+                result.Message = "AI Response parsing failed. Please check JSON format. Error: " + ex.Message;
             }
             return result;
         }

@@ -4,16 +4,16 @@ using RevitAIProject.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace RevitAIProject.Logic.Actions
 {
+    [AiParam("", Description = "The unique name of the command to execute.")]
     public abstract class BaseRevitAction : IRevitAction
     {
-        [AiParam("", Description = "The unique name of the command to execute.")]
-        public virtual string Name => GetType().Name.Replace("Action", "");
-        internal string TransactionName => "AI: " + Name;
+        internal string TransactionName => "AI: " + this.GetType().GetCustomAttribute<Logic.AiParamAttribute>()?.Name;
 
         [AiParam("target_ai_name", Description = "The name of the element from the previous commands (e.g. $f1) or leave blank for selected objects")]
         public string TargetAiName { get; set; }
@@ -24,35 +24,29 @@ namespace RevitAIProject.Logic.Actions
         // Универсальный метод поиска целей для ВСЕХ наследников
         protected List<ElementId> ResolveTargets(IRevitContext context)
         {
-            var ids = new List<ElementId>();
-
-            // 1. Поиск по переменной $id
-            if (!string.IsNullOrEmpty(TargetAiName) && TargetAiName.StartsWith("$"))
+            // 1. Пытаемся найти ключ ($q1, $f1 и т.д.) в едином хранилище
+            if (!string.IsNullOrEmpty(TargetAiName) &&
+                context.SessionContext.Storage.TryGetValue(TargetAiName, out var storedIds))
             {
-                if (context.SessionContext.Variables.TryGetValue(TargetAiName, out var storedId))
-                    ids.Add(storedId);
-            }
-            // 2. Поиск по числовому ID
-            else if (int.TryParse(TargetAiName, out int idInt))
-            {
-                ids.Add(new ElementId(idInt));
-            }
-            // 3. Если пусто или "selected" — берем выделение в Revit
-            else
-            {
-                var selection = context.UIDoc.Selection.GetElementIds();
-                if (selection.Any()) ids.AddRange(selection);
+                return storedIds; // Возвращаем список (хоть 1, хоть 1000 элементов)
             }
 
-            return ids;
+            // 2. Если это просто числовой ID (ручной ввод)
+            if (int.TryParse(TargetAiName, out int idInt))
+            {
+                return new List<ElementId> { new ElementId(idInt) };
+            }
+
+            // 3. Если ничего не указано — берем текущее выделение в Revit
+            var selection = context.UIDoc.Selection.GetElementIds();
+            return selection.ToList();
         }
 
-        // Регистрация: связываем виртуальное "имя ИИ" с реальным ID Revit
-        protected void RegisterCreatedElement(IRevitApiService apiService, ElementId newId)
+        protected void RegisterCreatedElement(IRevitContext context, IEnumerable<ElementId> newIds)
         {
-            if (!string.IsNullOrEmpty(AssignAiName) && AssignAiName.StartsWith("$") && newId != ElementId.InvalidElementId)
+            if (!string.IsNullOrEmpty(AssignAiName) && AssignAiName.StartsWith("$f") && (newIds != null && newIds.Count() > 0))
             {
-                apiService.SessionContext.Store(AssignAiName, newId);
+                context.SessionContext.Store(AssignAiName,  newIds );
             }
         }
 

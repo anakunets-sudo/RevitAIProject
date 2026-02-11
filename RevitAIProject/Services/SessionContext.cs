@@ -1,4 +1,5 @@
 ﻿using Autodesk.Revit.DB;
+using RevitAIProject.Logic;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,48 +14,33 @@ namespace RevitAIProject.Services
     /// РОЛЬ: Обеспечивет ИИ хранилищем для различного типа данных.
     /// ВВОД: Содержит методы Store для безопасного помещения данных в хранилище. Свойства для чтения доступны свободно.
     /// </summary>
+    [AiParam("сurrentCollector", Description = "Provider of storage for various types of data")]
     public class SessionContext
     {
-        // Текущий "живой" итератор Revit
+        [AiParam("сurrentCollector", Description = "Temporary Collector for storing intermediate search results")]
         public FilteredElementCollector CurrentCollector { get; private set; }
 
-        /// <summary>
-        /// РОЛЬ: Здесь хранятся Id итоговых результатов найденых и отфильтрованых Элементов.
-        /// </summary>
-        public List<ElementId> LastFoundIds { get; private set; } = new List<ElementId>();
-
-        /// <summary>
-        /// Variables - место для хранения предварительно запомненных ИИ данных со временным именем, например '$f1'. 
-        /// </summary>
-        public Dictionary<string, ElementId> Variables { get; private set; } = new Dictionary<string, ElementId>();
+        [AiParam("storage", Description = "Unified session storage for all entities. " +
+                                  "Stores search results ($q1, $q2) and created/modified elements ($f1, $f2) as lists of ElementIds. " +
+                                  "Use these keys in 'target_ai_name' of subsequent actions to reference previously found or created objects.")]
+        public Dictionary<string, List<ElementId>> Storage { get; } = new Dictionary<string, List<ElementId>>();
 
         public void Store(FilteredElementCollector collector)
         {
             CurrentCollector = collector;
         }
-        public void Store(string assignAiName, ElementId elementId)
-        {
-            if (!string.IsNullOrEmpty(assignAiName))
-                Variables[assignAiName] = elementId;
-        }
 
-        public void Store(IEnumerable<ElementId> lastFoundIds)
+        public void Store(string key, IEnumerable<ElementId> foundIds)
         {
-            if(lastFoundIds != null && lastFoundIds.Count() > 0)
-            {
-                LastFoundIds.Clear(); 
-                
-                LastFoundIds.AddRange(lastFoundIds);
+            Storage[key] = new List<ElementId>(foundIds);
 
-                CurrentCollector = null;
-            }
+            CurrentCollector = null;
         }
 
         public void Reset()
         {
             CurrentCollector = null;
-            LastFoundIds.Clear();
-            Variables.Clear();
+            Storage.Clear();
         }
     }
 }
