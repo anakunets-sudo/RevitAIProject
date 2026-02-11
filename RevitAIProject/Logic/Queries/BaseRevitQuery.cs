@@ -4,6 +4,7 @@ using RevitAIProject.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.Remoting.Contexts;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -15,11 +16,7 @@ namespace RevitAIProject.Logic.Queries
         {
             [AiParam("", Description = "Internal name of the query.")]
             public virtual string Name => GetType().Name.Replace("Query", "");
-
-            // Список найденных элементов для "Корзины"
-            public List<ElementId> FoundIds { get; protected set; } = new List<ElementId>();
-
-            public virtual string GetQueryResultSummary() => $"Found {FoundIds.Count} elements.";
+            //public virtual string GetQueryResultSummary() => $"Found {SessionContext.LastFoundIds.Count} elements.";
 
             // ВНЕШНИЙ МЕТОД (вызывает фабрика/контроллер)
             public void Execute(IRevitApiService apiService)

@@ -17,15 +17,14 @@ namespace RevitAIProject.Views
 
         public ChatView(UIControlledApplication a)
         {
-            RevitTaskHandler handler = new RevitTaskHandler();
-            IRevitApiService revitService = new RevitApiService(handler);
+            //RevitTaskHandler handler = new RevitTaskHandler();
+            IRevitApiService revitService = new RevitApiService();
             IOllamaService ollamaService = new OllamaService();
             var voiceService = new VoiceService(this);
-            SessionContext sessionContext = new SessionContext();
 
             if (!SimpleIoc.Default.IsRegistered<ChatViewModel>())
             {
-                SimpleIoc.Default.Register(() => new ChatViewModel(ollamaService, revitService, sessionContext, voiceService, this));
+                SimpleIoc.Default.Register(() => new ChatViewModel(ollamaService, revitService, voiceService, this));
             }
 
             InitializeComponent();

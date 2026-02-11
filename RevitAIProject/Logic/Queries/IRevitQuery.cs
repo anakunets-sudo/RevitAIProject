@@ -9,7 +9,6 @@ namespace RevitAIProject.Logic.Queries
 {
     public interface IRevitQuery : IRevitLogic
     {
-        List<ElementId> FoundIds { get; }
-        string GetQueryResultSummary(); // Краткий отчет для ИИ
+        //string GetQueryResultSummary(IRevitContext context); // Краткий отчет для ИИ
     }
 }

@@ -66,7 +66,11 @@ namespace RevitAIProject.Logic.Queries
                 Debug.WriteLine($"FilterJson - {collector.Count().ToString()}\n", "collector FilterJson");
             }
 
-            this.FoundIds = collector.ToElementIds().ToList();
+            context.SessionContext.Store(collector.ToElementIds());
+
+            //MessageBox.Show(context.SessionContext.LastFoundIds.Count.ToString());
+
+            Debug.WriteLine($"context.SessionContext - {context.SessionContext.LastFoundIds.Count}\n", "context.SessionContext");
 
         }
 

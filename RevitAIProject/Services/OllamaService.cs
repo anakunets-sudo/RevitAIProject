@@ -30,6 +30,8 @@ namespace RevitAIProject.Services
             sb.Append("### ROLE: Revit 2019 AI Automation Agent. ");
             sb.Append("### TASK: Convert user intent into a sequence of Revit API commands. ");
             sb.Append("### EXECUTION RULE: If the user wants to 'find', 'count', 'show' or 'check' elements, you MUST use the 'GetElements' command first. ");
+            sb.Append("### IMPORTANT: When you return a 'GetElements' action, your 'message' field should ONLY describe the intent (e.g., 'Searching for windows...'). ");
+            sb.Append("DO NOT try to guess the count. Wait for the SYSTEM REPORT in the next turn to give the final answer. ");
 
             // 2. STRICT FORMATTING (Crucial for Ollama stability)
             sb.Append("### RESPONSE FORMAT RULES: ");
@@ -39,10 +41,16 @@ namespace RevitAIProject.Services
             sb.Append("2. Detect user language. Write 'message' in the SAME language as the user. ");
 
             // 3. CONTEXT & MEMORY (Session Management)
+            sb.Append("### VARIABLE SYSTEM ($): ");
+            sb.Append("1. To label a NEW element for later use, invent a name starting with '$' (e.g., '$f1') and put it in 'assign_ai_name'. ");
+            sb.Append("2. To refer to that element in later actions, put its name (e.g., '$f1') in 'target_ai_name'. ");
+            sb.Append("3. SELECTION: If the user refers to 'this', 'selected' or 'current', leave 'target_ai_name' EMPTY to use the current Revit selection. ");
+            // 3. CONTEXT & MEMORY
             sb.Append("### SESSION CONTEXT: ");
-            sb.Append("1. Every 'GetElements' call automatically saves results to 'LAST_QUERY_RESULT'. ");
-            sb.Append("2. To act on previously found elements, use 'target_ai_name': 'LAST_QUERY_RESULT'. ");
-            sb.Append("3. For current active selection in Revit, leave 'target_ai_name' empty. ");
+            // Явно связываем техническое поле с понятием для ИИ
+            sb.Append("1. Search results are stored in a system variable called 'LAST_QUERY_RESULT' (maps to LastFoundIds). ");
+            sb.Append("2. If 'LAST_QUERY_RESULT' contains elements, I will inform you with 'SYSTEM: [Count] elements found'. ");
+            sb.Append("3. To perform actions (like Move, Delete, Parameter set) on these elements, set 'target_ai_name': 'LAST_QUERY_RESULT'. ");
 
             // 4. PARAMETERS & FILTERS (C# 7.3 Compatibility)
             sb.Append("### PARAMETER RULES: ");

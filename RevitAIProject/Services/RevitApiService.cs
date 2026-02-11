@@ -6,6 +6,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 namespace RevitAIProject.Services
 {
@@ -15,19 +16,25 @@ namespace RevitAIProject.Services
     /// </summary>
     public class RevitApiService : IRevitApiService, Logic.IRevitContext
     {
-        public RevitApiService() : this(new RevitTaskHandler())
+        public RevitApiService()
         {
+            _handler = new RevitTaskHandler(_tcs);
+            _externalEvent = ExternalEvent.Create(_handler);
+            SessionContext = new SessionContext();
         }
 
+        /*
         public RevitApiService(RevitTaskHandler handler)
         {
             _handler = handler;
             _externalEvent = ExternalEvent.Create(_handler);
             SessionContext = new SessionContext();
         }
+        */
 
         private readonly ExternalEvent _externalEvent;
         private readonly RevitTaskHandler _handler;
+        private TaskCompletionSource<bool> _tcs = new TaskCompletionSource<bool>();
 
         public event Action<string, RevitMessageType> OnMessageReported;
 
@@ -48,13 +55,16 @@ namespace RevitAIProject.Services
 
         private readonly List<Action<IRevitContext>> _queue = new List<Action<IRevitContext>>();
         public void AddToQueue(Action<IRevitContext> task) => _queue.Add(task);
-
+        
         /// <summary>
         /// РОЛЬ: Подготавливае очедедь заданий, которые формируют, например, классы реализующие интерфейс RevitAIProject.LogicIRevitLogic. В завершении ExternalEvent выполняет Raise().
         /// </summary>
-        public void Raise()
+        public Task RaiseAsync()
         {
+            _tcs = new TaskCompletionSource<bool>();
+
             var tasks = _queue.ToList();
+
             _queue.Clear();
 
             _handler.Enqueue(uiApp => {
@@ -68,6 +78,8 @@ namespace RevitAIProject.Services
             });
 
             _externalEvent.Raise();
+
+            return _tcs.Task;
         }
     }
 }

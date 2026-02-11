@@ -17,7 +17,6 @@ namespace RevitAIProject.ViewModels
     {
         private readonly IOllamaService _ollamaService;
         private readonly IRevitApiService _revitApiService;
-        private readonly SessionContext _sessionContext; // Новое поле для "корзины"
         private CancellationTokenSource _cts;
 
         private readonly IUIDispatcherHelper _dispatcher;
@@ -32,11 +31,10 @@ namespace RevitAIProject.ViewModels
         private readonly object _uiLock = new object();
 
         // Обновили конструктор, добавив SessionContext
-        public ChatViewModel(IOllamaService ollamaService, IRevitApiService revitApiService, SessionContext sessionContext, VoiceService voice, IUIDispatcherHelper dispatcher)
+        public ChatViewModel(IOllamaService ollamaService, IRevitApiService revitApiService, VoiceService voice, IUIDispatcherHelper dispatcher)
         {
             _ollamaService = ollamaService;
             _revitApiService = revitApiService;
-            _sessionContext = sessionContext; // Инициализация корзины
             _voice = voice;
             _dispatcher = dispatcher;
 
@@ -107,27 +105,24 @@ namespace RevitAIProject.ViewModels
                     foreach (var action in aiResult.Actions)
                     {
                         action.Execute(_revitApiService);
-
-                        // ЛОГИКА FEEDBACK LOOP ДЛЯ ЗАПРОСОВ
-                        if (action is IRevitQuery query)
-                        {
-                            // Сохраняем найденные ID в "корзину" для следующих команд
-                            _sessionContext.Store(query.FoundIds);                            
-
-                            // Запрашиваем у ИИ человеческий ответ на основе полученных данных из Ревит
-                            string dataSummary = query.GetQueryResultSummary();
-                            string feedbackPrompt = $"The user asked: '{userRequest}'. Revit database returned: {dataSummary}. Please provide a final polite answer to the user based on this data.";
-
-                            var finalAiResponse = await _ollamaService.GetAiResponseAsync(feedbackPrompt, _cts.Token);
-
-                            if (!string.IsNullOrEmpty(finalAiResponse.Message))
-                            {
-                                AddFormattedMessage(finalAiResponse.Message, RevitMessageType.Ai);
-                            }
-                        }
                     }
 
-                    _revitApiService.Raise();
+                    await _revitApiService.RaiseAsync();                    
+
+                    var foundCount = _revitApiService.SessionContext.LastFoundIds.Count;
+
+                    MessageBox.Show(foundCount.ToString());
+
+                    // Формируем системный отчет для ИИ
+                    string feedbackPrompt = $"SYSTEM_REPORT: 'GetElements' finished. Found: {foundCount} elements. " +
+                                            $"They are saved in LAST_QUERY_RESULT. Answer the user's question: '{userRequest}'";
+
+                    var finalAiResponse = await _ollamaService.GetAiResponseAsync(feedbackPrompt, _cts.Token);
+
+                    if (!string.IsNullOrEmpty(finalAiResponse.Message))
+                    {
+                        AddFormattedMessage(finalAiResponse.Message, RevitMessageType.Ai);
+                    }
                 }
             }
             catch (Exception ex)

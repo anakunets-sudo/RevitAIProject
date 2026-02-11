@@ -20,6 +20,6 @@ namespace RevitAIProject.Services
         void AddToQueue(Action<Logic.IRevitContext> task);
 
         // Универсальный метод для выполнения кода внутри транзакции
-        void Raise();
+        Task RaiseAsync();
     }
 }
