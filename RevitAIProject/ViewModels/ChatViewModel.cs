@@ -3,7 +3,9 @@ using GalaSoft.MvvmLight.Command;
 using Newtonsoft.Json;
 using RevitAIProject.Services;
 using RevitAIProject.Views;
+using RevitAIProject.Logic.Queries; // Добавили пространство имен для запросов
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -15,6 +17,7 @@ namespace RevitAIProject.ViewModels
     {
         private readonly IOllamaService _ollamaService;
         private readonly IRevitApiService _revitApiService;
+        private readonly SessionContext _sessionContext; // Новое поле для "корзины"
         private CancellationTokenSource _cts;
 
         private readonly IUIDispatcherHelper _dispatcher;
@@ -28,30 +31,25 @@ namespace RevitAIProject.ViewModels
         private bool _isBusy;
         private readonly object _uiLock = new object();
 
-        // Конструктор с параметрами для гибкости и тестов
-        public ChatViewModel(IOllamaService ollamaService, IRevitApiService revitApiService, VoiceService voice, IUIDispatcherHelper dispatcher)
+        // Обновили конструктор, добавив SessionContext
+        public ChatViewModel(IOllamaService ollamaService, IRevitApiService revitApiService, SessionContext sessionContext, VoiceService voice, IUIDispatcherHelper dispatcher)
         {
             _ollamaService = ollamaService;
             _revitApiService = revitApiService;
+            _sessionContext = sessionContext; // Инициализация корзины
             _voice = voice;
             _dispatcher = dispatcher;
 
-            // Подписываемся на новый формат сообщений
             _revitApiService.OnMessageReported += AddFormattedMessage;
-
             SendCommand = new RelayCommand(async () => await SendMessage(), () => !IsBusy);
-
             ChatHistory = "Система: Ожидание вашего запроса...\n";
 
             _voice.OnTextRecognized += (text) =>
             {
                 _dispatcher.Invoke(() =>
                 {
-                    // Добавляем текст к уже написанному (с пробелом)
-                    if (string.IsNullOrWhiteSpace(UserInput))
-                        UserInput = text;
-                    else
-                        UserInput += " " + text;
+                    if (string.IsNullOrWhiteSpace(UserInput)) UserInput = text;
+                    else UserInput += " " + text;
                 });
             };
 
@@ -68,90 +66,15 @@ namespace RevitAIProject.ViewModels
             }
             else
             {
-                // Мгновенно визуально отключаем запись
                 IsRecording = false;
-
-                // Убиваем процесс в фоне, результат уже и так прилетал в процессе
                 Task.Run(() => _voice.StopAsync());
             }
         }
-
-        private void AddFormattedMessage(string text, RevitMessageType type)
-        {
-            // Гарантируем обновление коллекции в UI потоке
-            _dispatcher.Invoke(() => {
-                string prefix = "";
-                switch (type)
-                {
-                    case RevitMessageType.Info: prefix = "Система: "; break;
-                    case RevitMessageType.Error: prefix = "Ошибка: "; break;
-                    case RevitMessageType.Ai: prefix = "AI: "; break;
-                    case RevitMessageType.User: prefix = "Вы: "; break;
-                }
-
-                // Добавляем в историю с новой строки
-                ChatHistory += prefix + text + "\n";
-            });
-        }
-
-        private void AddFormattedMessage2(string text, RevitMessageType type)
-        {
-            string prefix = "";
-            switch (type)
-            {
-                case RevitMessageType.Info: prefix = "Система: "; break;
-                case RevitMessageType.Error: prefix = "Ошибка: "; break;
-                case RevitMessageType.Ai: prefix = "AI: "; break;
-                case RevitMessageType.User: prefix = "Вы: "; break;
-            }
-
-            // Добавляем в историю с новой строки
-            ChatHistory += prefix + text + "\n";
-        }
-
-        #region Свойства
-
-        // Свойство для индикации записи (для смены цвета кнопки)
-        private bool _isRecording;
-        public bool IsRecording
-        {
-            get => _isRecording;
-            set => Set(ref _isRecording, value);
-        }
-
-        public string UserInput
-        {
-            get => _userInput;
-            set => Set(ref _userInput, value);
-        }
-
-        public string ChatHistory
-        {
-            get => _chatHistory;
-            set => Set(ref _chatHistory, value);
-        }
-
-        public bool IsBusy
-        {
-            get => _isBusy;
-            set
-            {
-                if (Set(ref _isBusy, value))
-                    ((RelayCommand)SendCommand).RaiseCanExecuteChanged();
-            }
-        }
-
-        public ICommand SendCommand { get; }
-
-        #endregion
-        // Команда для кнопки
-        public ICommand RecordVoiceCommand { get; }
 
         private async Task SendMessage()
         {
             if (string.IsNullOrWhiteSpace(UserInput)) return;
 
-            // Сброс старого токена и создание нового для текущего запроса
             _cts?.Cancel();
             _cts?.Dispose();
             _cts = new CancellationTokenSource();
@@ -159,35 +82,49 @@ namespace RevitAIProject.ViewModels
             string userRequest = UserInput;
             AddFormattedMessage(userRequest, RevitMessageType.User);
 
-            //UserInput = string.Empty;
-
             IsBusy = true;
-            // Сразу уведомляем пользователя, что ИИ начал работу
             AddFormattedMessage("Думаю...", RevitMessageType.Ai);
 
             try
             {
+                // Шаг 1: Первичный запрос к ИИ
                 var aiResult = await _ollamaService.GetAiResponseAsync(userRequest, _cts.Token);
                 UserInput = string.Empty;
 
                 if (!_cts.Token.IsCancellationRequested)
                 {
-
-                    //после получения aiResult
                     if (string.IsNullOrEmpty(aiResult.Message) && (aiResult.Actions == null || aiResult.Actions.Count == 0))
                     {
-                        aiResult.Message = "Извините, я не понял, как это выполнить. Попробуйте уточнить параметры.";
+                        aiResult.Message = "Извините, я не понял запрос.";
                     }
 
                     RemoveLastAiThinkingLine();
 
-                    // Выводим финальный ответ ИИ через нашу систему типов
+                    // Выводим предварительное сообщение (напр. "Проверяю стены...")
                     AddFormattedMessage(aiResult.Message, RevitMessageType.Ai);
 
-                    // ViewModel просто перебирает действия и выполняет их через API
+                    // Шаг 2: Выполнение действий
                     foreach (var action in aiResult.Actions)
                     {
                         action.Execute(_revitApiService);
+
+                        // ЛОГИКА FEEDBACK LOOP ДЛЯ ЗАПРОСОВ
+                        if (action is IRevitQuery query)
+                        {
+                            // Сохраняем найденные ID в "корзину" для следующих команд
+                            _sessionContext.Store(query.FoundIds);                            
+
+                            // Запрашиваем у ИИ человеческий ответ на основе полученных данных из Ревит
+                            string dataSummary = query.GetQueryResultSummary();
+                            string feedbackPrompt = $"The user asked: '{userRequest}'. Revit database returned: {dataSummary}. Please provide a final polite answer to the user based on this data.";
+
+                            var finalAiResponse = await _ollamaService.GetAiResponseAsync(feedbackPrompt, _cts.Token);
+
+                            if (!string.IsNullOrEmpty(finalAiResponse.Message))
+                            {
+                                AddFormattedMessage(finalAiResponse.Message, RevitMessageType.Ai);
+                            }
+                        }
                     }
 
                     _revitApiService.Raise();
@@ -204,6 +141,22 @@ namespace RevitAIProject.ViewModels
             }
         }
 
+        #region UI Helpers
+        private void AddFormattedMessage(string text, RevitMessageType type)
+        {
+            _dispatcher.Invoke(() => {
+                string prefix = "";
+                switch (type)
+                {
+                    case RevitMessageType.Info: prefix = "Система: "; break;
+                    case RevitMessageType.Error: prefix = "Ошибка: "; break;
+                    case RevitMessageType.Ai: prefix = "AI: "; break;
+                    case RevitMessageType.User: prefix = "Вы: "; break;
+                }
+                ChatHistory += prefix + text + "\n";
+            });
+        }
+
         private void RemoveLastAiThinkingLine()
         {
             string target = "AI: Думаю...\n";
@@ -212,5 +165,18 @@ namespace RevitAIProject.ViewModels
                 ChatHistory = ChatHistory.Substring(0, ChatHistory.Length - target.Length);
             }
         }
+
+        private bool _isRecording;
+        public bool IsRecording { get => _isRecording; set => Set(ref _isRecording, value); }
+        public string UserInput { get => _userInput; set => Set(ref _userInput, value); }
+        public string ChatHistory { get => _chatHistory; set => Set(ref _chatHistory, value); }
+        public bool IsBusy
+        {
+            get => _isBusy;
+            set { if (Set(ref _isBusy, value)) ((RelayCommand)SendCommand).RaiseCanExecuteChanged(); }
+        }
+        public ICommand SendCommand { get; }
+        public ICommand RecordVoiceCommand { get; }
+        #endregion
     }
 }

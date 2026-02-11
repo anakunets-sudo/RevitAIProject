@@ -21,10 +21,11 @@ namespace RevitAIProject.Views
             IRevitApiService revitService = new RevitApiService(handler);
             IOllamaService ollamaService = new OllamaService();
             var voiceService = new VoiceService(this);
+            SessionContext sessionContext = new SessionContext();
 
             if (!SimpleIoc.Default.IsRegistered<ChatViewModel>())
             {
-                SimpleIoc.Default.Register(() => new ChatViewModel(ollamaService, revitService, voiceService, this));
+                SimpleIoc.Default.Register(() => new ChatViewModel(ollamaService, revitService, sessionContext, voiceService, this));
             }
 
             InitializeComponent();

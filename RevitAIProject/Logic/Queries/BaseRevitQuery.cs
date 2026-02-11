@@ -14,7 +14,7 @@ namespace RevitAIProject.Logic.Queries
         public abstract class BaseRevitQuery : IRevitQuery
         {
             [AiParam("", Description = "Internal name of the query.")]
-            public virtual string QueryName => GetType().Name.Replace("Query", "");
+            public virtual string Name => GetType().Name.Replace("Query", "");
 
             // Список найденных элементов для "Корзины"
             public List<ElementId> FoundIds { get; protected set; } = new List<ElementId>();

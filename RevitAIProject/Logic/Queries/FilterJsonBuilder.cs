@@ -61,7 +61,7 @@ namespace RevitAIProject.Logic.Queries
             else if (type == StorageType.Double || type == StorageType.Integer)
             {
                 double val;
-                if (type == StorageType.Double) val = Services.ActionFactory.ParseToRevitFeet(dto.Value);
+                if (type == StorageType.Double) val = Services.LogicFactory.ParseToRevitFeet(dto.Value);
                 else double.TryParse(dto.Value, out val);
 
                 FilterNumericRuleEvaluator eval = MapNumericEvaluator(op);

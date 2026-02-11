@@ -11,7 +11,7 @@ namespace RevitAIProject.Logic.Actions
     public class CreateFloorAction : BaseRevitAction
     {
         [AiParam("CreateFloor", Description = "Creates a floor with an up (+) or down (-) offset, or an offset of 0 if the user does not specify one.")]
-        public override string ActionName => "CreateFloor";
+        public override string Name => "CreateFloor";
 
         [AiParam("offset", Description = "The offset can be up (+) and down (-)")]
         public double OffsetFt { get; set; }
@@ -82,7 +82,7 @@ namespace RevitAIProject.Logic.Actions
                         Floor floor = doc.Create.NewFloor(profile, fType, level, false);
 
                         if (!string.IsNullOrEmpty(AssignAiName))
-                            context.Variables[AssignAiName] = floor.Id;
+                            context.SessionContext.Store(AssignAiName, floor.Id);
 
                         tr.Commit();
 

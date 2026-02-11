@@ -2,6 +2,7 @@
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net.Http;
 using System.Reflection;
@@ -25,39 +26,43 @@ namespace RevitAIProject.Services
         {
             StringBuilder sb = new StringBuilder();
 
-            // 1. ROLE & CORE TASK
-            sb.Append("### ROLE: Revit BIM Assistant. ");
-            sb.Append("### TASK: Translate user requests into a JSON array of Revit API actions or queries. ");
-            sb.Append("### MULTI-ACTION RULE: If the user asks for multiple steps (e.g., 'find and delete'), " +
-                      "return ALL steps in the 'actions' array in the correct execution order. ");
+            // 1. ROLE & CORE MISSION
+            sb.Append("### ROLE: Revit 2019 AI Automation Agent. ");
+            sb.Append("### TASK: Convert user intent into a sequence of Revit API commands. ");
+            sb.Append("### EXECUTION RULE: If the user wants to 'find', 'count', 'show' or 'check' elements, you MUST use the 'GetElements' command first. ");
 
-            // 2. LANGUAGE & FORMAT (Твои правила сохранены)
-            sb.Append("### LANGUAGE RULES: ");
-            sb.Append("1. Respond ONLY with a raw JSON object. No markdown, no explanations. ");
+            // 2. STRICT FORMATTING (Crucial for Ollama stability)
+            sb.Append("### RESPONSE FORMAT RULES: ");
+            sb.Append("1. Respond ONLY with a raw JSON object. ");
+            sb.Append("2. PROHIBITED: No markdown code blocks (```json), no conversational preambles (e.g., 'Sure!', 'I will help'). ");
+            sb.Append("3. LANGUAGE: Write the 'message' field in the user's language. All technical names (Command names, Parameter keys) MUST be in ENGLISH. ");
             sb.Append("2. Detect user language. Write 'message' in the SAME language as the user. ");
-            sb.Append("3. All technical parameters (p, o, v, action name) must be in ENGLISH. ");
-            sb.Append("4. Use EXACT numbers from the request. If units (mm, in, ft) are provided, include them in the value string (e.g., '500mm'). ");
 
-            // 3. VARIABLE SYSTEM ($) & SESSION CONTEXT
-            sb.Append("### CONTEXT SYSTEM: ");
-            sb.Append("1. To label a NEW element for later use, invent a name starting with '$' (e.g., '$f1') and put it in 'assign_ai_name'. ");
-            sb.Append("2. To refer to that element later, put its name (e.g., '$f1') in 'target_ai_name'. ");
-            sb.Append("3. SELECTION: If the user refers to 'this', 'selected' or 'current', leave 'target_ai_name' EMPTY. ");
-            sb.Append("4. QUERIES: If the user refers to 'found elements' or 'them' after a search, use 'LAST_QUERY_RESULT' in 'target_ai_name'. ");
+            // 3. CONTEXT & MEMORY (Session Management)
+            sb.Append("### SESSION CONTEXT: ");
+            sb.Append("1. Every 'GetElements' call automatically saves results to 'LAST_QUERY_RESULT'. ");
+            sb.Append("2. To act on previously found elements, use 'target_ai_name': 'LAST_QUERY_RESULT'. ");
+            sb.Append("3. For current active selection in Revit, leave 'target_ai_name' empty. ");
 
-            // 4. QUERY & FILTER RULES (Новое)
-            sb.Append("### QUERY RULES: ");
-            sb.Append("1. Use 'GetElements' for any search or counting task. ");
-            sb.Append("2. 'filterJson' must be a JSON string of rules: [{\"p\": \"ParamName\", \"o\": \"Operator\", \"v\": \"Value\"}]. ");
-            sb.Append("3. Operators for filterJson: equals, notequals, greater, less, contains. ");
+            // 4. PARAMETERS & FILTERS (C# 7.3 Compatibility)
+            sb.Append("### PARAMETER RULES: ");
+            sb.Append("1. 'filterJson' must be a double-escaped JSON string of rules. Example: \"[{\\\"p\\\":\\\"Level\\\",\\\"o\\\":\\\"equals\\\",\\\"v\\\":\\\"Level 1\\\"}]\". ");
+            sb.Append("2. Operators: equals, notequals, greater, less, contains. ");
+            sb.Append("3. Units: Always include units in values if provided (e.g., '300mm', '1500mm', '10ft'). ");
 
-            // 5. COMMAND DISCOVERY (Reflection)
+            // 5. DYNAMIC COMMANDS (Reflection-based)
             sb.Append("### AVAILABLE COMMANDS: ");
             sb.Append(GetDynamicCommandsDescription());
 
-            // 6. FINAL OUTPUT SCHEMA
-            sb.Append("### OUTPUT FORMAT: Return ONLY valid JSON. ");
-            sb.Append("Schema: { \"message\": \"User description\", \"actions\": [ { \"name\": \"ActionName\", \"Parameters\": { \"key\": \"string\" } } ] }. ");
+            // 6. UNIFIED OUTPUT SCHEMA (The most important part)
+            sb.Append("### FINAL SCHEMA (ACTIONS ONLY): ");
+            sb.Append("All operations (Queries and Actions) MUST be items in the 'actions' array. Use this EXACT structure: ");
+            sb.Append("{ ");
+            sb.Append("  \"message\": \"User-friendly description of what you are doing\", ");
+            sb.Append("  \"actions\": [ ");
+            sb.Append("    { \"name\": \"CommandName\", \"Parameters\": { \"key1\": \"value1\", \"key2\": \"value2\" } } ");
+            sb.Append("  ] ");
+            sb.Append("} ");
 
             return sb.ToString();
         }
@@ -66,19 +71,41 @@ namespace RevitAIProject.Services
         {
             StringBuilder sb = new StringBuilder();
 
-            // Пример 1: Поиск и подсчет (Query)
-            sb.AppendLine("User: 'Сколько дверей в проекте?'");
-            sb.AppendLine("Response: { \"message\": \"Считаю общее количество дверей в проекте.\", \"actions\": [ { \"name\": \"GetElements\", \"Parameters\": { \"categoryId\": -2000023 } } ] }");
+            // Example 1: Basic Counting (Query)
+            sb.AppendLine("User: 'How many walls are in the project?'");
+            sb.AppendLine(@"Response: { ""message"": ""I am counting all walls in the project."", ""actions"": [ { ""name"": ""GetElements"", ""Parameters"": { ""categoryId"": -2000011 } } ] }");
 
-            // Пример 2: Сложный поиск через FilterJson
-            sb.AppendLine("User: 'Найди стены толщиной 300мм'");
-            sb.AppendLine("Response: { \"message\": \"Ищу стены с параметром толщины 300мм.\", \"actions\": [ { \"name\": \"GetElements\", \"Parameters\": { \"categoryId\": -2000011, \"filterJson\": \"[{\\\"p\\\":\\\"Width\\\",\\\"o\\\":\\\"equals\\\",\\\"v\\\":\\\"300mm\\\"}]\" } } ] }");
+            // Example 2: Filtering by Parameter (Complex Query)
+            sb.AppendLine("User: 'Find all doors on Level 1'");
+            sb.AppendLine(@"Response: { ""message"": ""Searching for doors on Level 1."", ""actions"": [ { ""name"": ""GetElements"", ""Parameters"": { ""categoryId"": -2000023, ""filterJson"": ""[{\""p\"":\""Level\"",\""o\"":\""equals\"",\""v\"":\""Level 1\""}]"" } } ] }");
 
-            // Пример 3: Цепочка Поиск -> Действие (Использование LAST_QUERY_RESULT)
-            sb.AppendLine("User: 'Найди все окна на 2 этаже и удали их'");
-            sb.AppendLine("Response: { \"message\": \"Нахожу окна на 2 этаже и удаляю их.\", \"actions\": [ " +
-                          "{ \"name\": \"GetElements\", \"Parameters\": { \"categoryId\": -2000023, \"filterJson\": \"[{\\\"p\\\":\\\"Level\\\",\\\"o\\\":\\\"equals\\\",\\\"v\\\":\\\"Level 2\\\"}]\" } }, " +
-                          "{ \"name\": \"DeleteElements\", \"Parameters\": { \"target_ai_name\": \"LAST_QUERY_RESULT\" } } ] }");
+            // Example 3: Sequence Query -> Action (Using LAST_QUERY_RESULT)
+            sb.AppendLine("User: 'Find 300mm walls and delete them'");
+            sb.AppendLine(@"Response: { ""message"": ""Finding 300mm walls and deleting them from the model."", ""actions"": [ " +
+                          @"{ ""name"": ""GetElements"", ""Parameters"": { ""categoryId"": -2000011, ""filterJson"": ""[{\""p\"":\""Width\"",\""o\"":\""equals\"",\""v\"":\""300mm\""}]"" } }, " +
+                          @"{ ""name"": ""DeleteElements"", ""Parameters"": { ""target_ai_name"": ""LAST_QUERY_RESULT"" } } ] }");
+
+            // Example 4: View-specific search
+            sb.AppendLine("User: 'Count windows in this view'");
+            sb.AppendLine(@"Response: { ""message"": ""Counting windows on the current view."", ""actions"": [ { ""name"": ""GetElements"", ""Parameters"": { ""categoryId"": -2000014, ""viewScoped"": ""true"" } } ] }");
+
+            // Пример 5: Создание с именованием ($id)
+            sb.AppendLine("User: 'Плита со смещением 500 дюймов'");
+            sb.AppendLine("Response: { \"message\": \"Создаю перекрытие ($f1) со смещением 500 дюймов.\", \"actions\": [ { \"name\": \"CreateFloor\", \"Parameters\": { \"assign_ai_name\": \"$f1\", \"offset\": \"500in\" } } ] }");
+
+            // Пример 6: Цепочка (Создание + Перемещение)
+            sb.AppendLine("User: 'Создай пол и сдвинь его влево на 1 метр'");
+            sb.AppendLine("Response: { \"message\": \"Создаю пол ($f1) и сдвигаю его на 1000мм влево.\", \"actions\": [ " +
+                          "{ \"name\": \"CreateFloor\", \"Parameters\": { \"assign_ai_name\": \"$f1\", \"offset\": \"0mm\" } }, " +
+                          "{ \"name\": \"MoveElement\", \"Parameters\": { \"target_ai_name\": \"$f1\", \"dx\": -1000мм, \"dy\": 0, \"dz\": 0 } } ] }");
+
+            // Пример 7: Работа с выделением (пустой target_ai_name)
+            sb.AppendLine("User: 'Сдвинь это вверх на 200мм'");
+            sb.AppendLine("Response: { \"message\": \"Сдвигаю выбранный элемент на 200мм вверх.\", \"actions\": [ { \"name\": \"MoveElement\", \"Parameters\": { \"target_ai_name\": \"\", \"dx\": 0, \"dy\": 200, \"dz\": 0 } } ] }");
+
+            // Пример 8: Работа с выделением (пустой target_ai_name)
+            sb.AppendLine("User: 'Сдвинь это вверх по уровню на 200см'");
+            sb.AppendLine("Response: { \"message\": \"Сдвигаю выбранный элемент на 200см по уровню вверх.\", \"actions\": [ { \"name\": \"MoveElement\", \"Parameters\": { \"target_ai_name\": \"\", \"dx\": 0, \"dy\": 200см, \"dz\": 0 } } ] }");
 
             return sb.ToString();
         }
@@ -114,12 +141,14 @@ namespace RevitAIProject.Services
                 // Передаем токен в чтение контента
                 string responseBody = await response.Content.ReadAsStringAsync();
 
+                CleanJson(responseBody);
+
                 JObject ollamaJson = JObject.Parse(responseBody);
                 string rawAiResponse = ollamaJson["response"]?.ToString() ?? "{}";
 
                 // В продакшене MessageBox лучше убрать или вызывать через диспетчер, 
                 // так как это может заблокировать поток.
-                 System.Windows.MessageBox.Show(rawAiResponse, "AI Raw Output");
+                Debug.WriteLine(rawAiResponse, "AI Raw Output");
 
                 return ParseToAiResponse(rawAiResponse);
             }
@@ -129,7 +158,7 @@ namespace RevitAIProject.Services
                 return new AiResponse
                 {
                     Message = "Генерация была прервана пользователем.",
-                    Actions = new List<Logic.Actions.IRevitAction>()
+                    Actions = new List<Logic.IRevitLogic>()
                 };
             }
             catch (Exception ex)
@@ -137,9 +166,19 @@ namespace RevitAIProject.Services
                 return new AiResponse
                 {
                     Message = $"Ошибка при обращении к ИИ: {ex.Message}",
-                    Actions = new List<Logic.Actions.IRevitAction>()
+                    Actions = new List<Logic.IRevitLogic>()
                 };
             }
+        }
+
+        private string CleanJson(string raw)
+        {
+            // Убираем Markdown блоки, если они просочились
+            raw = raw.Replace("```json", "").Replace("```", "").Trim();
+            int start = raw.IndexOf('{');
+            int end = raw.LastIndexOf('}');
+            if (start != -1 && end > start) return raw.Substring(start, end - start + 1);
+            return raw;
         }
 
         private string GetDynamicCommandsDescription()
@@ -188,41 +227,35 @@ namespace RevitAIProject.Services
             return sb.ToString();
         }
 
-        private AiResponse ParseToAiResponse(string json)
+        private AiResponse ParseToAiResponse(string rawJson)
         {
-            AiResponse result = new AiResponse();
-            result.Actions = new List<Logic.Actions.IRevitAction>();
-
+            var result = new AiResponse { Actions = new List<Logic.IRevitLogic>() };
             try
             {
+                string json = CleanJson(rawJson); // Чистим от мусора
                 JObject data = JObject.Parse(json);
 
-                // 1. Получаем сообщение для пользователя
-                result.Message = data["message"] != null ? data["message"].ToString() : "Команда обработана.";
+                // Используем Case-Insensitive доступ
+                result.Message = (data.GetValue("message", StringComparison.OrdinalIgnoreCase) ?? "Command processed.").ToString();
 
-                // 2. Парсим список действий через фабрику
-                JArray actionsArray = data["actions"] as JArray;
+                var actionsArray = data.GetValue("actions", StringComparison.OrdinalIgnoreCase) as JArray;
                 if (actionsArray != null)
                 {
                     foreach (JToken token in actionsArray)
                     {
-                        string actionName = token["name"] != null ? token["name"].ToString() : null;
+                        // Ищем имя команды, не боясь разного регистра
+                        string actionName = (token["name"] ?? token["Name"])?.ToString();
 
-                        // Используем созданную ранее фабрику для создания объектов действий
-                        Logic.Actions.IRevitAction action = ActionFactory.CreateAction(actionName, token);
-
-                        if (action != null)
-                        {
-                            result.Actions.Add(action);
-                        }
+                        // Передаем весь токен в фабрику
+                        var action = LogicFactory.CreateLogic(actionName, token);
+                        if (action != null) result.Actions.Add(action);
                     }
                 }
             }
             catch (Exception ex)
             {
-                result.Message = "Ошибка разбора JSON от ИИ: " + ex.Message;
+                result.Message = "JSON Parse Error: " + ex.Message;
             }
-
             return result;
         }
     }

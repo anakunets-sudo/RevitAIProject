@@ -6,8 +6,9 @@ using System.Threading.Tasks;
 
 namespace RevitAIProject.Logic
 {
-    public interface IReviLogic
+    public interface IRevitLogic
     {
+        string Name { get; }
         void Execute(RevitAIProject.Services.IRevitApiService apiService);
     }
 }

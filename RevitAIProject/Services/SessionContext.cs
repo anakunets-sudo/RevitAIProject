@@ -2,29 +2,59 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.Remoting.Contexts;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows.Media;
 
 namespace RevitAIProject.Services
 {
+    /// <summary>
+    /// РОЛЬ: Обеспечивет ИИ хранилищем для различного типа данных.
+    /// ВВОД: Содержит методы Store для безопасного помещения данных в хранилище. Свойства для чтения доступны свободно.
+    /// </summary>
     public class SessionContext
     {
-        // "Корзина" для ID элементов из последнего запроса
-        public List<ElementId> LastFoundIds { get; set; } = new List<ElementId>();
+        // Текущий "живой" итератор Revit
+        public FilteredElementCollector CurrentCollector { get; private set; }
 
-        // Метаданные (имена параметров, GUID, Enum и т.д.)
-        public Dictionary<string, object> Metadata { get; set; } = new Dictionary<string, object>();
+        /// <summary>
+        /// РОЛЬ: Здесь хранятся Id итоговых результатов найденых и отфильтрованых Элементов.
+        /// </summary>
+        public List<ElementId> LastFoundIds { get; private set; } = new List<ElementId>();
 
-        public void UpdateElements(List<ElementId> ids)
+        /// <summary>
+        /// Variables - место для хранения предварительно запомненных ИИ данных со временным именем, например '$f1'. 
+        /// </summary>
+        public Dictionary<string, ElementId> Variables { get; private set; } = new Dictionary<string, ElementId>();
+
+        public void Store(FilteredElementCollector collector)
         {
-            LastFoundIds.Clear();
-            if (ids != null) LastFoundIds.AddRange(ids);
+            CurrentCollector = collector;
+        }
+        public void Store(string assignAiName, ElementId elementId)
+        {
+            if (!string.IsNullOrEmpty(assignAiName))
+                Variables[assignAiName] = elementId;
         }
 
-        public void Clear()
+        public void Store(IEnumerable<ElementId> lastFoundIds)
         {
+            if(lastFoundIds != null && lastFoundIds.Count() > 0)
+            {
+                LastFoundIds.Clear(); 
+                
+                LastFoundIds.AddRange(lastFoundIds);
+
+                CurrentCollector = null;
+            }
+        }
+
+        public void Reset()
+        {
+            CurrentCollector = null;
             LastFoundIds.Clear();
-            Metadata.Clear();
+            Variables.Clear();
         }
     }
 }

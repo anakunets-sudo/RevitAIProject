@@ -1,101 +1,110 @@
-﻿using Newtonsoft.Json;
+﻿using NAudio.Wave;
+using Newtonsoft.Json;
 using RevitAIProject.Views;
 using System;
-using System.Diagnostics;
 using System.IO;
-using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading.Tasks;
+using Vosk;
 
-namespace RevitAIProject.Services
+public class VoiceService : IDisposable
 {
-    // Простая модель для десериализации
-    public class VoskResponse
+    public event Action<string> OnTextRecognized;
+    private Model _model;
+    private VoskRecognizer _recognizer;
+    private WaveInEvent _waveIn;
+    private readonly IUIDispatcherHelper _dispatcher;
+
+    public VoiceService(IUIDispatcherHelper dispatcher)
     {
-        [JsonProperty("text")]
-        public string Text { get; set; }
+        _dispatcher = dispatcher;
+        string dllPath = System.Reflection.Assembly.GetExecutingAssembly().Location;
+        string modelPath = Path.Combine(Path.GetDirectoryName(dllPath), "models", "vosk-model-small-ru-0.22");
+
+        _model = new Model(modelPath);
+        _recognizer = new VoskRecognizer(_model, 16000);
+        // Важно: не подписываемся на OnTextRecognized внутри цикла записи!
     }
 
-    public class VoiceService
+    public void Start()
     {
-        public event Action<string> OnTextRecognized;
-        private Process _voiceProcess;
-        private readonly IUIDispatcherHelper _dispatcher;
-        private StringBuilder _sessionAccumulator = new StringBuilder(); // Буфер для накопления текста
-
-        public VoiceService(IUIDispatcherHelper dispatcher) => _dispatcher = dispatcher;
-
-        public void Start()
+        // 1. Сначала жестко чистим старый вход, если он выжил
+        if (_waveIn != null)
         {
-            StopCurrentProcess();
-            _sessionAccumulator.Clear(); // Очищаем перед новой записью
-
-            string dllPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            string exePath = Path.Combine(dllPath, "services", "VoskVoiceHost.exe");
-            string modelPath = Path.Combine(dllPath, "models", "vosk-model-small-ru-0.22");
-
-            _voiceProcess = new Process();
-            _voiceProcess.StartInfo = new ProcessStartInfo
-            {
-                FileName = exePath,
-                Arguments = $"\"{modelPath}\"",
-                WorkingDirectory = Path.Combine(dllPath, "services"),
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                StandardOutputEncoding = Encoding.UTF8
-            };
-
-            _voiceProcess.OutputDataReceived += (s, e) =>
-            {
-                if (string.IsNullOrEmpty(e.Data)) return;
-                try
-                {
-                    var response = JsonConvert.DeserializeObject<VoskResponse>(e.Data);
-                    if (response != null && !string.IsNullOrWhiteSpace(response.Text))
-                    {
-                        // СРАЗУ отправляем текст в UI, как только Vosk его распознал
-                        _dispatcher.Invoke(() => OnTextRecognized?.Invoke(response.Text));
-                    }
-                }
-                catch { }
-            };
-
-            _voiceProcess.Start();
-            _voiceProcess.BeginOutputReadLine();
-            _voiceProcess.BeginErrorReadLine();
+            try { _waveIn.StopRecording(); } catch { }
+            _waveIn.Dispose();
+            _waveIn = null;
         }
 
-        public async Task StopAsync()
+        _recognizer.Reset();
+
+        // 2. Создаем новый экземпляр
+        _waveIn = new WaveInEvent { WaveFormat = new WaveFormat(16000, 1) };
+        _waveIn.DataAvailable += (s, e) =>
         {
-            await Task.Run(() =>
-            {
-                StopCurrentProcess();
+            // Проверка на null, чтобы данные не летели в закрывающийся объект
+            if (_waveIn != null)
+                _recognizer.AcceptWaveform(e.Buffer, e.BytesRecorded);
+        };
+        _waveIn.StartRecording();
+    }
 
-                string finalResult = _sessionAccumulator.ToString().Trim();
-
-                // Передаем накопленный результат в UI один раз
-                if (!string.IsNullOrEmpty(finalResult))
-                {
-                    _dispatcher.Invoke(() => OnTextRecognized?.Invoke(finalResult));
-                }
-            });
-        }
-
-        private void StopCurrentProcess()
+    public async Task StopAsync()
+    {
+        await Task.Run(() =>
         {
+            if (_waveIn == null) return;
+
             try
             {
-                if (_voiceProcess != null && !_voiceProcess.HasExited)
+                // 1. Сначала отключаем микрофон, чтобы данные больше не текли
+                _waveIn.StopRecording();
+
+                // 2. Даем небольшую паузу (100мс), чтобы буферы Vosk успокоились
+                System.Threading.Thread.Sleep(100);
+
+                // 3. Вызываем Vosk в максимально защищенном блоке
+                string finalJson = string.Empty;
+
+                // Проверяем, жив ли еще объект распознавателя
+                if (_recognizer != null)
                 {
-                    _voiceProcess.Kill();
-                    _voiceProcess.WaitForExit(500);
+                    finalJson = _recognizer.FinalResult();
+                }
+
+                if (!string.IsNullOrEmpty(finalJson))
+                {
+                    var result = JsonConvert.DeserializeObject<VoskResult>(finalJson);
+                    if (!string.IsNullOrWhiteSpace(result?.text))
+                    {
+                        OnTextRecognized?.Invoke(result.text);
+                    }
                 }
             }
-            catch { }
-            finally { _voiceProcess = null; }
-        }
+            catch (Exception ex)
+            {
+                // Ловим любые C# ошибки
+                System.Diagnostics.Debug.WriteLine("Vosk Error: " + ex.Message);
+            }
+            finally
+            {
+                // 4. ГАРАНТИРОВАННОЕ уничтожение объекта записи
+                if (_waveIn != null)
+                {
+                    _waveIn.Dispose();
+                    _waveIn = null;
+                }
+                // После краша на втором вызове лучше даже ресетнуть сам рекогнайзер
+                _recognizer?.Reset();
+            }
+        });
     }
+
+    public void Dispose()
+    {
+        _waveIn?.Dispose();
+        _recognizer?.Dispose();
+        _model?.Dispose();
+    }
+
+    private class VoskResult { public string text { get; set; } }
 }

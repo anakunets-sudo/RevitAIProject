@@ -6,8 +6,8 @@ using System.Threading.Tasks;
 
 namespace RevitAIProject.Logic.Actions
 {
-    public interface IRevitAction: IReviLogic
+    public interface IRevitAction: IRevitLogic
     {
-        string ActionName { get; }
+
     }
 }

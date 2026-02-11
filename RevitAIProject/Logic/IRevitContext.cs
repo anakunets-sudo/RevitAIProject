@@ -9,13 +9,16 @@ using System.Threading.Tasks;
 
 namespace RevitAIProject.Logic
 {
+    /// <summary>
+    /// РОЛЬ: Предоставляет классам безопасный доступ к UIApplication UIApp и IDocument UIDoc для работы с логикой Revit API
+    /// ВХОД: Получает UIApplication, UIDocument и SessionContext у классов которые реализуют этот интерфейс.
+    /// ВЫХОД: Использует SessionContext для хранения и обмена данными в сессии работы ИИ
+    /// </summary>
     public interface IRevitContext
     {
         UIApplication UIApp { get; }
         UIDocument UIDoc { get; }
-        // Только чтение и запись переменных, без методов управления очередью
-        Dictionary<string, ElementId> Variables { get; }
-
+        SessionContext SessionContext { get; }
         void Report(string message, RevitMessageType messageType);
     }
 }

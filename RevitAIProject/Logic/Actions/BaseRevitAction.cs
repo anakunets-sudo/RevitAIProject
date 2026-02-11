@@ -12,8 +12,8 @@ namespace RevitAIProject.Logic.Actions
     public abstract class BaseRevitAction : IRevitAction
     {
         [AiParam("", Description = "The unique name of the command to execute.")]
-        public virtual string ActionName => GetType().Name.Replace("Action", "");
-        internal string TransactionName => "AI: " + ActionName;
+        public virtual string Name => GetType().Name.Replace("Action", "");
+        internal string TransactionName => "AI: " + Name;
 
         [AiParam("target_ai_name", Description = "The name of the element from the previous commands (e.g. $f1) or leave blank for selected objects")]
         public string TargetAiName { get; set; }
@@ -29,7 +29,7 @@ namespace RevitAIProject.Logic.Actions
             // 1. Поиск по переменной $id
             if (!string.IsNullOrEmpty(TargetAiName) && TargetAiName.StartsWith("$"))
             {
-                if (context.Variables.TryGetValue(TargetAiName, out var storedId))
+                if (context.SessionContext.Variables.TryGetValue(TargetAiName, out var storedId))
                     ids.Add(storedId);
             }
             // 2. Поиск по числовому ID
@@ -52,7 +52,7 @@ namespace RevitAIProject.Logic.Actions
         {
             if (!string.IsNullOrEmpty(AssignAiName) && AssignAiName.StartsWith("$") && newId != ElementId.InvalidElementId)
             {
-                apiService.Variables[AssignAiName] = newId;
+                apiService.SessionContext.Store(AssignAiName, newId);
             }
         }
 
