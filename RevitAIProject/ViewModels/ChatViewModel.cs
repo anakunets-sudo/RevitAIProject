@@ -21,7 +21,6 @@ namespace RevitAIProject.ViewModels
         private readonly IOllamaService _ollamaService;
         private readonly IRevitApiService _revitApiService;
         private CancellationTokenSource _cts;
-
         private readonly IUIDispatcherHelper _dispatcher;
         private readonly VoiceService _voice;
 
@@ -84,8 +83,8 @@ namespace RevitAIProject.ViewModels
 
                 string userRequest = UserInput;
                 AddFormattedMessage(userRequest, RevitMessageType.User);
-
                 IsBusy = true;
+
                 AddFormattedMessage("Думаю...", RevitMessageType.Ai);
 
                 // Шаг 1: Первичный запрос к ИИ
@@ -94,56 +93,51 @@ namespace RevitAIProject.ViewModels
 
                 if (!_cts.Token.IsCancellationRequested)
                 {
-                    if (string.IsNullOrEmpty(aiResult.Message) && (aiResult.Actions == null || aiResult.Actions.Count == 0))
-                    {
-                        aiResult.Message = "Извините, я не понял запрос.";
-                    }
-
                     RemoveLastAiThinkingLine();
-
-                    // Выводим предварительное сообщение (напр. "Проверяю стены...")
                     AddFormattedMessage(aiResult.Message, RevitMessageType.Ai);
 
-                    _revitApiService.SessionContext.Reset();
+                    // Очищаем "короткую память" перед новым циклом
+                    _revitApiService.SessionContext.Reset(); // Сброс всего
 
-                    // Шаг 2: Выполнение действий
+                    // Шаг 2: Наполнение очереди и выполнение в Revit
                     foreach (var action in aiResult.Actions)
                     {
                         action.Execute(_revitApiService);
                     }
 
-                    // Теперь await ДЕЙСТВИТЕЛЬНО остановит выполнение метода
-                    // до тех пор, пока в RevitTaskHandler не сработает SetResult
+                    // Ждем завершения всей пачки в потоке Revit
                     await _revitApiService.RaiseAsync();
 
-                    // Шаг 3: Собираем детальный отчет с привязкой к категориям
-                    var storage = _revitApiService.SessionContext.Storage;
+                    // Шаг 3: Обработка всех типов накопившихся рапортов
+                    var allReports = _revitApiService.SessionContext.Reports; // Берем все сообщения сессии
 
-                    // Сопоставляем ключи из хранилища с тем, что запрашивал ИИ в текущем ходу
-                    var reportDetails = new List<string>();
-                    foreach (var kvp in storage)
+                    foreach (var report in allReports)
                     {
-                        // Теперь мы ищем среди объектов IRevitLogic, так как добавили свойства в базу
-                        var originalAction = aiResult.Actions.Where(e=>e is IRevitQuery)?
-                            .Cast<IRevitQuery>() // Приводим к базовому классу
-                            .FirstOrDefault(a => a.SearchAiName == kvp.Key);
-
-                        string categoryInfo = "";
-                        if (originalAction != null && !string.IsNullOrEmpty(originalAction.CategoryName))
+                        // 1. Если это ошибка — выводим её в чат пользователю немедленно!
+                        if (report.Type == RevitMessageType.Error || report.Type == RevitMessageType.Error)
                         {
-                            categoryInfo = $" ({originalAction.CategoryName})";
+                            AddFormattedMessage(report.Text, RevitMessageType.Error);
                         }
 
-                        reportDetails.Add($"{kvp.Key}{categoryInfo}: {kvp.Value.Count} elements");
+                        // 2. Если это предупреждение — тоже можно показать
+                        if (report.Type == RevitMessageType.Warning)
+                        {
+                            AddFormattedMessage(report.Text, RevitMessageType.Warning);
+                        }
                     }
 
-                    string detailedSummary = string.Join(", ", reportDetails);
+                    // Шаг 3: Сборка финального ответа на основе "Timeline"
+                    // Теперь мы НЕ ПЕРЕБИРАЕМ категории вручную!
+                    var aiReports = _revitApiService.SessionContext.GetAiMessages();
+                    string executionTimeline = string.Join("; ", aiReports);
 
-                    // Формируем системный отчет. Теперь ИИ увидит: "$q1 (OST_Floors): 1 elements, $q2 (OST_Walls): 10 elements"
-                    string feedbackPrompt = $"SYSTEM_REPORT: Actions completed. " +
-                                            $"Storage contents: [{detailedSummary}]. " +
+                    // Если рапортов нет (например, пустой список команд), даем страховку
+                    if (string.IsNullOrEmpty(executionTimeline)) executionTimeline = "Actions executed, but no reports generated.";
+
+                    // Формируем финальный промпт. ИИ увидит историю успеха/ошибок каждого шага.
+                    string feedbackPrompt = $"SYSTEM_REPORT: {executionTimeline}. " +
                                             $"User request: '{userRequest}'. " +
-                                            $"Answer clearly based on the storage data above.";
+                                            $"Final Step: Answer the user based on the execution facts above.";
 
                     var finalAiResponse = await _ollamaService.GetAiResponseAsync(feedbackPrompt, _cts.Token);
 
@@ -171,10 +165,11 @@ namespace RevitAIProject.ViewModels
                 string prefix = "";
                 switch (type)
                 {
-                    case RevitMessageType.Info: prefix = "Система: "; break;
-                    case RevitMessageType.Error: prefix = "Ошибка: "; break;
+                    case RevitMessageType.Info: prefix = "System: "; break;
+                    case RevitMessageType.Error: prefix = "Error: "; break;
                     case RevitMessageType.Ai: prefix = "AI: "; break;
-                    case RevitMessageType.User: prefix = "Вы: "; break;
+                    case RevitMessageType.User: prefix = "You: "; break;
+                    case RevitMessageType.Warning: prefix = "Attention: "; break;
                 }
                 ChatHistory += prefix + text + "\n";
             });

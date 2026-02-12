@@ -50,8 +50,14 @@ namespace RevitAIProject.Services
         {
             if (data == null) return;
 
-            // Извлекаем узел параметров (поддержка разных структур JSON)
-            JToken paramsNode = data["Parameters"] ?? data["params"] ?? data;
+            // 1. Пытаемся работать с данными как с объектом
+            JObject paramsNode = data as JObject;
+            if (paramsNode == null) return;
+
+            // 2. Умный переход: если мы получили весь экшен, но параметры лежат внутри "params"
+            if (paramsNode["params"] is JObject nested) paramsNode = nested;
+            else if (paramsNode["Parameters"] is JObject nestedP) paramsNode = nestedP;
+
             PropertyInfo[] properties = instance.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
 
             foreach (PropertyInfo prop in properties)
@@ -59,25 +65,24 @@ namespace RevitAIProject.Services
                 var attr = prop.GetCustomAttribute<AiParamAttribute>();
                 if (attr == null) continue;
 
+                // Имя ключа из атрибута (например, "categoryName")
                 string targetKey = attr.Name ?? prop.Name;
 
-                // Регистронезависимый поиск ключа
-                JToken jsonValue = paramsNode[targetKey]
-                                 ?? paramsNode[targetKey.ToLower()]
-                                 ?? paramsNode[targetKey.ToUpper()];
+                // 3. КЛЮЧЕВАЯ ПРАВКА: Игнорируем регистр (categoryName == CategoryName)
+                JToken jsonValue = paramsNode.GetValue(targetKey, StringComparison.OrdinalIgnoreCase);
 
-                if (jsonValue != null && prop.CanWrite)
+                // Проверяем, что значение есть и оно не пустое
+                if (jsonValue != null && jsonValue.Type != JTokenType.Null)
                 {
                     try
                     {
-                        string stringValue = jsonValue.ToString();
+                        string stringValue = jsonValue.ToString().Trim();
+                        if (string.IsNullOrEmpty(stringValue)) continue;
 
-                        // Логика конвертации типов (Важно для Revit 2019+)
+                        // 4. Конвертация типов
                         if (prop.PropertyType == typeof(double))
                         {
-                            // Пример 1: "offset": "150mm" -> сконвертирует в футы
-                            double feetValue = ParseToRevitFeet(stringValue);
-                            prop.SetValue(instance, feetValue);
+                            prop.SetValue(instance, ParseToRevitFeet(stringValue));
                         }
                         else if (prop.PropertyType == typeof(long))
                         {
@@ -87,15 +92,20 @@ namespace RevitAIProject.Services
                         {
                             prop.SetValue(instance, bool.Parse(stringValue.ToLower()));
                         }
+                        else if (prop.PropertyType == typeof(string))
+                        {
+                            prop.SetValue(instance, stringValue);
+                        }
                         else
                         {
+                            // Для Enum и других типов
                             object convertedValue = jsonValue.ToObject(prop.PropertyType);
                             prop.SetValue(instance, convertedValue);
                         }
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[Mapping Error]: {prop.Name} - {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[Mapping Error]: {prop.Name} <- {targetKey}. {ex.Message}");
                     }
                 }
             }

@@ -23,7 +23,7 @@ namespace RevitAIProject.Logic.Actions
 
             if (!string.IsNullOrEmpty(ExcludeAiName))
             {
-                context.SessionContext.Storage.TryGetValue(ExcludeAiName, out idsToExclude);
+                context.Storage.StorageValue(ExcludeAiName, out idsToExclude);
             }
 
             List<ElementId> idsToSelect = null;
@@ -31,13 +31,13 @@ namespace RevitAIProject.Logic.Actions
             // Проверяем TargetAiName
             if (!string.IsNullOrEmpty(TargetAiName))
             {
-                context.SessionContext.Storage.TryGetValue(TargetAiName, out idsToSelect);
+                context.Storage.StorageValue(TargetAiName, out idsToSelect);
             }
 
             // Если не нашли по TargetAiName, пробуем SearchAiName
             if (idsToSelect == null && !string.IsNullOrEmpty(SearchAiName))
             {
-                context.SessionContext.Storage.TryGetValue(SearchAiName, out idsToSelect);
+                context.Storage.StorageValue(SearchAiName, out idsToSelect);
             }
 
             if (idsToSelect != null && idsToSelect.Count > 0)
@@ -46,6 +46,8 @@ namespace RevitAIProject.Logic.Actions
 
                 context.UIDoc.Selection.SetElementIds(idsToSelect);
                 RegisterCreatedElement(context, idsToSelect);
+
+                Report($"Elements {SearchAiName} were selected, Elements {ExcludeAiName} were excluded from selection", Services.RevitMessageType.AiReport);
             }
             else
             {

@@ -19,8 +19,6 @@ namespace RevitAIProject.Logic.Actions
                 UIDocument uiDoc = context.UIDoc;
                 Document doc = uiDoc.Document;
 
-            try
-            {
                 // 1. Сбор стен (Выделение или Коннектор)
                 ICollection<ElementId> selectedIds = uiDoc.Selection.GetElementIds();
                 List<Wall> walls = new List<Wall>();
@@ -62,48 +60,43 @@ namespace RevitAIProject.Logic.Actions
                     throw new Exception("Контур не замкнут. Начало первой стены не совпадает с концом последней.");
                 }
 
-                // 5. Создание перекрытия
-                using (TransactionGroup tg = new TransactionGroup(doc, TransactionName))
-                {
-                    tg.Start();
-
-                    using (Transaction tr = new Transaction(doc, TransactionName))
-                    {
-
-                        tr.Start();
-
-                        Level level = doc.ActiveView.GenLevel ??
-                                 new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().First();
-
-                        FloorType fType = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().First();
-
-                        Floor floor = doc.Create.NewFloor(profile, fType, level, false);
-
-                        RegisterCreatedElement(context, new ElementId[] { floor.Id });
-
-                        tr.Commit();
-
-                        tr.Start();
-                        // Установка смещения
-                        if (Math.Abs(OffsetFt) > 0.001)
-                        {
-                            Parameter p = floor.get_Parameter(BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM);
-                            if (p != null) p.Set(OffsetFt);
-                        }
-                        tr.Commit();
-                    }
-
-                    tg.Assimilate();
-
-                    //apiService.Report("Готово! Стен: " + walls.Count, RevitMessageType.Info);
-                }
-            }
-            catch (Exception ex)
+            // 5. Создание перекрытия
+            using (TransactionGroup tg = new TransactionGroup(doc, TransactionName))
             {
-                context.Report(ex.Message, RevitMessageType.Error);
-            }
+                tg.Start();
 
-            //apiService.CreateFloorByWalls("Exterior", /*ThicknessMm,*/ OffsetFt);
+                using (Transaction tr = new Transaction(doc, TransactionName))
+                {
+
+                    tr.Start();
+
+                    Level level = doc.ActiveView.GenLevel ??
+                             new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().First();
+
+                    FloorType fType = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().First();
+
+                    Floor floor = doc.Create.NewFloor(profile, fType, level, false);
+
+                    RegisterCreatedElement(context, new ElementId[] { floor.Id });
+
+                    Report($"Floor {floor.Id} was created", Services.RevitMessageType.AiReport);
+
+                    tr.Commit();
+
+                    tr.Start();
+                    // Установка смещения
+                    if (Math.Abs(OffsetFt) > 0.001)
+                    {
+                        Parameter p = floor.get_Parameter(BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM);
+                        if (p != null) p.Set(OffsetFt);
+
+                        Report($"Floor {floor.Id} was offset by {OffsetFt} feet", Services.RevitMessageType.AiReport);
+                    }
+                    tr.Commit();
+                }
+
+                tg.Assimilate();
+            }
         }
     }
 }

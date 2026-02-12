@@ -1,4 +1,4 @@
-﻿using RevitAIProject.Logic.Queries.RevitAIProject.Logic.Queries;
+﻿using RevitAIProject.Logic.Queries;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -22,11 +22,11 @@ namespace RevitAIProject.Logic.Queries
 
                 if (type != null)
                 {
-                    var collector = context.SessionContext.CurrentCollector.OfClass(type);
+                    var collector = context.Storage.CurrentCollector.OfClass(type);
 
-                    context.SessionContext.Store(collector);
+                    context.Storage.Store(collector);
 
-                    Debug.WriteLine($"ClassName - {context.SessionContext.CurrentCollector.GetElementCount()}\n", "collector ClassName");
+                    ReportAndRegisterSearched(context, collector.ToElementIds());
                 }
             }
         }

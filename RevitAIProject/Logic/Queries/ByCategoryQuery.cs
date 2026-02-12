@@ -1,5 +1,5 @@
 ﻿using Autodesk.Revit.DB;
-using RevitAIProject.Logic.Queries.RevitAIProject.Logic.Queries;
+using RevitAIProject.Logic.Queries;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -10,17 +10,25 @@ using System.Threading.Tasks;
 namespace RevitAIProject.Logic.Queries
 {
     [AiParam("ByCategory", Description = "Filters by BuiltInCategory.")]
-    internal class ByCategoryQuery : BaseRevitQuery
+    public class ByCategoryQuery : BaseRevitQuery
     {
         protected override void Execute(IRevitContext context)
         {
+            Debug.WriteLine($"'{CategoryName}'");
+
+            Debug.WriteLine($"Execute", this.GetType().Name);
+
             var bic = ResolveCategory();
 
-            var collector = context.SessionContext.CurrentCollector.OfCategory(bic);
+            Debug.WriteLine($"{bic}", this.GetType().Name);
 
-            context.SessionContext.Store(collector);
+            var collector = context.Storage.CurrentCollector.OfCategory(bic);
 
-            Debug.WriteLine($"ClassName - {context.SessionContext.CurrentCollector.GetElementCount()}\n", "collector ClassName");
+            Debug.WriteLine($"{collector.Count()}", this.GetType().Name);
+
+            context.Storage.Store(collector);
+
+            ReportAndRegisterSearched(context, collector.ToElementIds());
         }
     }
 }

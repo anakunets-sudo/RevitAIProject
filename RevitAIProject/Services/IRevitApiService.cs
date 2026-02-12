@@ -15,7 +15,7 @@ namespace RevitAIProject.Services
         void Report(string message, RevitMessageType messageType);
 
         // Это наш "блокнот" для связи имен ИИ с реальными ID Revit
-        SessionContext SessionContext { get; }
+        ISessionContext SessionContext { get; }
 
         void AddToQueue(Action<Logic.IRevitContext> task);
 

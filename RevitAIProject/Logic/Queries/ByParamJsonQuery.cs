@@ -1,5 +1,5 @@
 ﻿using Autodesk.Revit.DB;
-using RevitAIProject.Logic.Queries.RevitAIProject.Logic.Queries;
+using RevitAIProject.Logic.Queries;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -27,10 +27,11 @@ namespace RevitAIProject.Logic.Queries
 
                 if (dynamicFilter != null)
                 {
-                    var collector = context.SessionContext.CurrentCollector.WherePasses(dynamicFilter);
+                    var collector = context.Storage.CurrentCollector.WherePasses(dynamicFilter);
 
-                    context.SessionContext.Store(collector);
+                    context.Storage.Store(collector);
 
+                    ReportAndRegisterSearched(context, collector.ToElementIds());
                 }
             }
         }

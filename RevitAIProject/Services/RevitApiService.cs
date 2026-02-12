@@ -14,36 +14,36 @@ namespace RevitAIProject.Services
     /// <summary>
     /// РОЛЬ: Предоставляет классам бепасный доступ к ExternalEvent и хранилищу сессионых данных, а также разделяет логику сервиса для разных классов путем реализации разных интерфейсов. Формирет очередь заданий, которые подготавливают классы реализующие RevitAIProject.Logic.IRevitLogic и дает Ревит команду на выполнение.
     /// </summary>
-    public class RevitApiService : IRevitApiService, Logic.IRevitContext
+    public class RevitApiService : IRevitApiService, IRevitContext
     {
         public RevitApiService()
         {
             _handler = new RevitTaskHandler();
             _externalEvent = ExternalEvent.Create(_handler);
-            SessionContext = new SessionContext();
+            _sessionContext = new SessionContext();
         }
-
-        /*
-        public RevitApiService(RevitTaskHandler handler)
-        {
-            _handler = handler;
-            _externalEvent = ExternalEvent.Create(_handler);
-            SessionContext = new SessionContext();
-        }
-        */
 
         private readonly ExternalEvent _externalEvent;
-        private readonly RevitTaskHandler _handler;
+        private readonly RevitTaskHandler _handler;        
         private TaskCompletionSource<bool> _tcs = new TaskCompletionSource<bool>();
+
+        public void Report(string message, RevitMessageType type)
+        {
+            _sessionContext.Report(message, type);
+        }
 
         public event Action<string, RevitMessageType> OnMessageReported;
 
+
+        private ISessionContext _sessionContext;
         /// <summary>
         /// РОЛЬ: Безопасное размещение и хранение сессионных данных для ИИ.
         /// </summary>
-        public SessionContext SessionContext { get; }
+        public ISessionContext SessionContext => _sessionContext;
 
-        public void Report(string message, RevitMessageType messageType)
+        public ISessionStorage Storage  => _sessionContext;
+
+        public void AddReport(string message, RevitMessageType messageType)
         {
             // Вызываем событие, если на него кто-то подписан
             OnMessageReported?.Invoke(message, messageType);

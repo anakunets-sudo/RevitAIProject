@@ -128,6 +128,10 @@
     <Compile Include="Logic\Queries\InitActiveViewQuery.cs" />
     <Compile Include="Logic\Queries\InitGlobalQuery.cs" />
     <Compile Include="Logic\Queries\IRevitQuery.cs" />
+    <Compile Include="Services\ISessionContext.cs" />
+    <Compile Include="Services\ISessionReport.cs" />
+    <Compile Include="Services\ISessionStorage.cs" />
+    <Compile Include="Services\RevitMessage.cs" />
     <Compile Include="Services\SessionContext.cs" />
     <Compile Include="Services\VoiceService.cs" />
     <Compile Include="Services\VoiceService2.cs" />

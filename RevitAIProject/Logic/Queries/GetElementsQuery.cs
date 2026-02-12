@@ -1,5 +1,5 @@
 ﻿using Autodesk.Revit.DB;
-using RevitAIProject.Logic.Queries.RevitAIProject.Logic.Queries;
+using RevitAIProject.Logic.Queries;
 using RevitAIProject.Services;
 using System;
 using System.Collections;

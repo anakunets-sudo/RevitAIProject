@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace RevitAIProject.Logic.Actions
 {
@@ -35,7 +36,11 @@ namespace RevitAIProject.Logic.Actions
 
                 XYZ vector = new XYZ(Dx, Dy, Dz);
                 foreach (var id in targets)
+                {
                     ElementTransformUtils.MoveElement(context.UIDoc.Document, id, vector);
+
+                    Report($"Element {id} was moved", Services.RevitMessageType.AiReport);
+                }
                 tr.Commit();
             }
         }

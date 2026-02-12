@@ -1,5 +1,5 @@
 ﻿using Autodesk.Revit.DB;
-using RevitAIProject.Logic.Queries.RevitAIProject.Logic.Queries;
+using RevitAIProject.Logic.Queries;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -19,8 +19,10 @@ namespace RevitAIProject.Logic.Queries
             if (int.TryParse(LevelIdString, out int idInt))
             {
                 var filter = new ElementLevelFilter(new ElementId(idInt));
-                var collector = context.SessionContext.CurrentCollector.WherePasses(filter);
-                context.SessionContext.Store(collector);
+                var collector = context.Storage.CurrentCollector.WherePasses(filter);
+                context.Storage.Store(collector);
+
+                ReportAndRegisterSearched(context, collector.ToElementIds());
             }
         }
     }

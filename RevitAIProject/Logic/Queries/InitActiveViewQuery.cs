@@ -1,11 +1,12 @@
 ﻿using Autodesk.Revit.DB;
-using RevitAIProject.Logic.Queries.RevitAIProject.Logic.Queries;
+using RevitAIProject.Logic.Queries;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.Remoting.Contexts;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows.Media;
 
 namespace RevitAIProject.Logic.Queries
 {
@@ -14,7 +15,9 @@ namespace RevitAIProject.Logic.Queries
     {
         protected override void Execute(IRevitContext context)
         {
-            context.SessionContext.Store(new FilteredElementCollector(context.UIDoc.Document, context.UIDoc.Document.ActiveView.Id));
+            context.Storage.Store(new FilteredElementCollector(context.UIDoc.Document, context.UIDoc.Document.ActiveView.Id));
+
+            Report($"This collector for collecting on ACTIVE VIEW was created.", Services.RevitMessageType.AiReport);
         }
     }
 }

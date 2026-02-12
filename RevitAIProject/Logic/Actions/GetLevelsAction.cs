@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows.Media;
 
 namespace RevitAIProject.Logic.Actions
 {
@@ -26,6 +27,8 @@ namespace RevitAIProject.Logic.Actions
             foreach (var level in levels)
             {
                 levelIds.Add(level.Id);
+
+                Report($"Level name {level.Name} id {level.Id} elevation {level.Elevation} feet defined", Services.RevitMessageType.AiReport);
             }
 
             RegisterCreatedElement(context, levelIds);

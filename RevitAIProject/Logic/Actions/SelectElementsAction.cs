@@ -1,10 +1,12 @@
 ﻿using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Visual;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 
 namespace RevitAIProject.Logic.Actions
 {
@@ -21,19 +23,23 @@ namespace RevitAIProject.Logic.Actions
             // Проверяем TargetAiName
             if (!string.IsNullOrEmpty(TargetAiName))
             {
-                context.SessionContext.Storage.TryGetValue(TargetAiName, out idsToSelect);
+                context.Storage.StorageValue(TargetAiName, out idsToSelect);
+
+                Report($"Elements {TargetAiName} have been selected", Services.RevitMessageType.AiReport);
             }
 
             // Если не нашли по TargetAiName, пробуем SearchAiName
             if (idsToSelect == null && !string.IsNullOrEmpty(SearchAiName))
             {
-                context.SessionContext.Storage.TryGetValue(SearchAiName, out idsToSelect);
+                context.Storage.StorageValue(SearchAiName, out idsToSelect);
+
+                Report($"Elements {SearchAiName} have been selected", Services.RevitMessageType.AiReport);
             }
 
             if (idsToSelect != null && idsToSelect.Count > 0)
             {
                 context.UIDoc.Selection.SetElementIds(idsToSelect);
-                RegisterCreatedElement(context, idsToSelect);
+                RegisterCreatedElement(context, idsToSelect);                
             }
             else
             {

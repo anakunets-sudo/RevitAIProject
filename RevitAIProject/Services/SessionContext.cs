@@ -15,7 +15,7 @@ namespace RevitAIProject.Services
     /// ВВОД: Содержит методы Store для безопасного помещения данных в хранилище. Свойства для чтения доступны свободно.
     /// </summary>
     [AiParam("сurrentCollector", Description = "Provider of storage for various types of data")]
-    public class SessionContext
+    public class SessionContext : ISessionContext
     {
         [AiParam("сurrentCollector", Description = "Temporary Collector for storing intermediate search results")]
         public FilteredElementCollector CurrentCollector { get; private set; }
@@ -36,11 +36,42 @@ namespace RevitAIProject.Services
 
             CurrentCollector = null;
         }
+        public bool StorageValue(string key, out List<ElementId> foundIds)
+        {
+            Storage.TryGetValue(key, out List<ElementId> typedIds);
 
+            foundIds = typedIds;
+            return true;
+        }        
+
+        //ISessionReport (Шина событий) ---
+        private readonly List<RevitMessage> _reports = new List<RevitMessage>();
+        public IReadOnlyList<RevitMessage> Reports => _reports.AsReadOnly();
+        public void Report(string message, RevitMessageType type)
+        {
+            // Создаем структуру сообщения. 
+            // В C# 7.3 используем инициализатор объектов.
+            var reportEntry = new RevitMessage
+            {
+                Text = message,
+                Type = type,
+                Timestamp = DateTime.Now // Фиксируем точное время события
+            };
+
+            // Просто добавляем в накопляемый список
+            _reports.Add(reportEntry);
+        }
+        public IEnumerable<string> GetAiMessages()
+        {
+            return _reports
+                .Where(r => r.Type == RevitMessageType.AiReport)
+                .Select(r => r.Text);
+        }
         public void Reset()
         {
             CurrentCollector = null;
             Storage.Clear();
+            _reports.Clear();
         }
     }
 }

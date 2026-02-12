@@ -1,5 +1,5 @@
 ﻿using Autodesk.Revit.DB;
-using RevitAIProject.Logic.Queries.RevitAIProject.Logic.Queries;
+using RevitAIProject.Logic.Queries;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,7 +13,9 @@ namespace RevitAIProject.Logic.Queries
     {
         protected override void Execute(IRevitContext context)
         {       
-            context.SessionContext.Store(new FilteredElementCollector(context.UIDoc.Document));
+            context.Storage.Store(new FilteredElementCollector(context.UIDoc.Document));
+
+            Report($"The collector for collecting in the ENTIRE project was created.", Services.RevitMessageType.AiReport);
         }
     }
 }

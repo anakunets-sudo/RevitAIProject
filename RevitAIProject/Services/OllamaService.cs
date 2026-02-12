@@ -56,11 +56,31 @@ namespace RevitAIProject.Services
             sb.Append("3. For new elements, use 'assign_ai_name' with '$f' prefix (e.g., '$f1'). ");
             sb.Append("4. If multiple categories are requested, generate multiple 'GetElements' actions with unique 'search_ai_name' keys. ");
 
+            // 3. THE SEARCH FUNNEL (PRIORITY)
+            sb.Append("### SEARCH ALGORITHM (THE FUNNEL): ");
+            sb.Append("1. SCOPE: Call 'InitActiveViewQuery' (default) or 'InitGlobalQuery'. ");
+            sb.Append("2. FAST FILTER: Apply 'ByCategoryQuery' (e.g., OST_Walls) or 'ByClassQuery'. ");
+            sb.Append("3. SPATIAL: Use 'ByLevelQuery' for floor-based filtering. If Level IDs are unknown, call 'GetLevelsAction' first. ");
+            sb.Append("4. DEEP FILTER: Use 'ByParamJsonQuery' for specific parameters (Mark, Material, etc.) using JSON rules. ");
+
             // 6. EXECUTION STRATEGY
             sb.Append("### EXECUTION STRATEGY: ");
-            sb.Append("1. [QUERIES]: Use 'GetElements' for 'Find', 'Count', 'Select'. ALWAYS provide 'search_ai_name'. ");
+
+            // Правило для запросов: напоминаем про Воронку (Init -> Category -> Filter)
+            sb.Append("1. [QUERIES]: For 'Find', 'Count', or 'Identify', use THE FUNNEL sequence. ");
+            sb.Append("Start with 'InitActiveViewQuery' (default) or 'InitGlobalQuery'. ");
+            sb.Append("Always set 'search_ai_name' (e.g., '$q1') in the LAST query of the chain to save results. ");
+
+            // Правило для действий: Create, Move, Delete
             sb.Append("2. [ACTIONS]: Use Action commands for 'Create', 'Move', 'Delete', 'SelectElements'. ");
-            sb.Append("3. [CHAINING]: You can search and then act in one turn. Example: [Action1: GetElements($q1), Action2: SelectElements(target:$q1)]. ");
+            sb.Append("For new elements, use 'target_ai_name' with '$f' prefix (e.g., '$f1'). ");
+
+            // Правило для связок (Chaining): Поиск + Действие
+            sb.Append("3. [CHAINING]: You MUST chain search and actions. ");
+            sb.Append("Example sequence: [InitActiveViewQuery] -> [ByCategoryQuery] -> [MoveElementAction(target_ai_name: '$q1')]. ");
+
+            // Правило для пустой выборки (Selection)
+            sb.Append("4. [SELECTION]: If 'target_ai_name' is empty, the action applies to the user's current manual selection in Revit UI. ");
 
             // 7. ДИНАМИЧЕСКИЕ КОМАНДЫ (Reflection-based)
             sb.Append("### AVAILABLE COMMANDS & PARAMETERS: ");
@@ -87,44 +107,49 @@ namespace RevitAIProject.Services
         {
             StringBuilder sb = new StringBuilder();
 
-            // Example 1: Basic Counting (Query)
-            // Переход на OST_Walls и именование через $q1
+            // Example 1: Basic Counting (Using the Funnel)
             sb.AppendLine("User: 'How many walls are in the project?'");
-            sb.AppendLine(@"Response: { ""message"": ""Searching for all walls in the project..."", ""actions"": [ { ""action"": ""GetElements"", ""params"": { ""categoryName"": ""OST_Walls"", ""search_ai_name"": ""$q1"" } } ] }");
+            sb.AppendLine(@"Response: { ""message"": ""Counting all walls in the project..."", ""actions"": [ 
+        { ""action"": ""InitGlobalQuery"" }, 
+        { ""action"": ""ByCategoryQuery"", ""categoryName"": ""OST_Walls"", ""search_ai_name"": ""$q1"" } 
+    ] }");
 
-            // Example 2: Filtering by Parameter (Complex Query)
-            // Использование OST_Doors и строкового имени категории
+            // Example 2: Filtering by Level (Using GetLevelsAction + ByLevelQuery)
             sb.AppendLine("User: 'Find all doors on Level 1'");
-            sb.AppendLine(@"Response: { ""message"": ""Searching for doors on Level 1."", ""actions"": [ { ""action"": ""GetElements"", ""params"": { ""categoryName"": ""OST_Doors"", ""search_ai_name"": ""$q1"", ""filterJson"": ""[{\""p\"":\""Level\"",\""o\"":\""equals\"",\""v\"":\""Level 1\""}]"" } } ] }");
+            sb.AppendLine(@"Response: { ""message"": ""First, I will identify Level 1 ID, then find the doors."", ""actions"": [ 
+        { ""action"": ""GetLevelsAction"" }, 
+        { ""action"": ""InitActiveViewQuery"" }, 
+        { ""action"": ""ByCategoryQuery"", ""categoryName"": ""OST_Doors"" }, 
+        { ""action"": ""ByLevelQuery"", ""levelIdString"": ""REPLACE_WITH_LEVEL_ID_FROM_RESULT"", ""search_ai_name"": ""$q1"" } 
+    ] }");
 
-            // Example 3: Sequence Query -> Action (Using storage)
-            // Связка: Найти в $q1 -> Удалить содержимое $q1
+            // Example 3: Complex Filtering (Funnel + Parameter JSON)
             sb.AppendLine("User: 'Find 300mm walls and delete them'");
-            sb.AppendLine(@"Response: { ""message"": ""Finding 300mm walls and deleting them from the model."", ""actions"": [ " +
-                          @"{ ""action"": ""GetElements"", ""params"": { ""categoryName"": ""OST_Walls"", ""search_ai_name"": ""$q1"", ""filterJson"": ""[{\""p\"":\""Width\"",\""o\"":\""equals\"",\""v\"":\""300mm\""}]"" } }, " +
-                          @"{ ""action"": ""DeleteElements"", ""params"": { ""target_ai_name"": ""$q1"" } } ] }");
+            sb.AppendLine(@"Response: { ""message"": ""Finding 300mm walls to delete them."", ""actions"": [ 
+        { ""action"": ""InitGlobalQuery"" }, 
+        { ""action"": ""ByCategoryQuery"", ""categoryName"": ""OST_Walls"" }, 
+        { ""action"": ""ByParamJsonQuery"", ""filterJson"": ""[{\""p\"":\""Width\"",\""o\"":\""equals\"",\""v\"":\""300\""}]"", ""search_ai_name"": ""$q1"" }, 
+        { ""action"": ""DeleteElementsAction"", ""target_ai_name"": ""$q1"" } 
+    ] }");
 
-            // Example 4: Создание с именованием ($f1)
-            sb.AppendLine("User: 'Плита со смещением 500 мм'");
-            sb.AppendLine(@"Response: { ""message"": ""Создаю перекрытие ($f1) со смещением 500мм."", ""actions"": [ { ""action"": ""CreateFloor"", ""params"": { ""assign_ai_name"": ""$f1"", ""offset"": ""500mm"" } } ] }");
+            // Example 4: Creation with Naming ($f1)
+            sb.AppendLine("User: 'Create a floor with 500mm offset'");
+            sb.AppendLine(@"Response: { ""message"": ""Creating a new floor ($f1) with 500mm offset."", ""actions"": [ 
+        { ""action"": ""CreateFloorAction"", ""offset"": 500, ""target_ai_name"": ""$f1"" } 
+    ] }");
 
-            // Example 5: Цепочка (Создание + Перемещение)
-            // Использование созданной переменной $f1 во второй команде
-            sb.AppendLine("User: 'Создай пол и сдвинь его влево на 1 метр'");
-            sb.AppendLine(@"Response: { ""message"": ""Создаю пол ($f1) и сдвигаю его на 1 метр влево."", ""actions"": [ " +
-                          @"{ ""action"": ""CreateFloor"", ""params"": { ""assign_ai_name"": ""$f1"", ""offset"": ""0mm"" } }, " +
-                          @"{ ""action"": ""MoveElement"", ""params"": { ""target_ai_name"": ""$f1"", ""dx"": ""-1000mm"", ""dy"": ""0mm"", ""dz"": ""0mm"" } } ] }");
+            // Example 5: Chaining (Create + Move)
+            sb.AppendLine("User: 'Create a floor and move it left by 1 meter'");
+            sb.AppendLine(@"Response: { ""message"": ""Creating floor ($f1) and moving it."", ""actions"": [ 
+        { ""action"": ""CreateFloorAction"", ""target_ai_name"": ""$f1"" }, 
+        { ""action"": ""MoveElementAction"", ""target_ai_name"": ""$f1"", ""dx"": -1000, ""dy"": 0, ""dz"": 0 } 
+    ] }");
 
-            // Example 6: Работа с выделением (пустой target_ai_name)
-            sb.AppendLine("User: 'Сдвинь это вверх на 200мм'");
-            sb.AppendLine(@"Response: { ""message"": ""Сдвигаю выбранный элемент на 200мм вверх."", ""actions"": [ { ""action"": ""MoveElement"", ""params"": { ""target_ai_name"": """", ""dx"": ""0mm"", ""dy"": ""200mm"", ""dz"": ""0mm"" } } ] }");
-
-            // Example 7: Несколько категорий сразу (Множественный поиск)
-            // Демонстрируем ИИ, как разделять окна и стены по разным ключам
-            sb.AppendLine("User: 'Найди все окна и все стены'");
-            sb.AppendLine(@"Response: { ""message"": ""Ищу все окна и стены в проекте."", ""actions"": [ " +
-                          @"{ ""action"": ""GetElements"", ""params"": { ""categoryName"": ""OST_Windows"", ""search_ai_name"": ""$q1"" } }, " +
-                          @"{ ""action"": ""GetElements"", ""params"": { ""categoryName"": ""OST_Walls"", ""search_ai_name"": ""$q2"" } } ] }");
+            // Example 6: Selection-based Action
+            sb.AppendLine("User: 'Move selected elements up by 200mm'");
+            sb.AppendLine(@"Response: { ""message"": ""Moving your current selection up."", ""actions"": [ 
+        { ""action"": ""MoveElementAction"", ""target_ai_name"": """", ""dx"": 0, ""dy"": 0, ""dz"": 200 } 
+    ] }");
 
             return sb.ToString();
         }
@@ -256,13 +281,13 @@ namespace RevitAIProject.Services
                 {
                     foreach (JObject token in actionsArray)
                     {
-                        // В твоем JSON обычно ключ "action", а не "name"
+                        // Извлекаем имя экшена
                         string actionName = (token["action"] ?? token["Action"] ?? token["name"])?.ToString();
 
-                        // Извлекаем блок "params" (например, { "offset": 100 })
-                        var parameters = token["params"] ?? token["Params"];
+                        // ИСПРАВЛЕНИЕ: Если ИИ прислал плоский JSON, передаем сам 'token'.
+                        // Если прислал вложенный, берем 'params'.
+                        JToken parameters = token["params"] ?? token["Params"] ?? token;
 
-                        // Фабрика создает объект и СРАЗУ заполняет его свойства через рефлексию (используя AiParam)
                         var logicInstance = LogicFactory.CreateLogic(actionName, parameters);
 
                         if (logicInstance != null)
@@ -272,7 +297,7 @@ namespace RevitAIProject.Services
             }
             catch (Exception ex)
             {
-                result.Message = "AI Response parsing failed. Please check JSON format. Error: " + ex.Message;
+                result.Message = "AI Response parsing failed: " + ex.Message;
             }
             return result;
         }

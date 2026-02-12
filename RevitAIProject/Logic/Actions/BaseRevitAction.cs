@@ -3,8 +3,10 @@ using Autodesk.Revit.UI;
 using RevitAIProject.Services;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.Remoting.Contexts;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -21,12 +23,15 @@ namespace RevitAIProject.Logic.Actions
         [AiParam("assign_ai_name", Description = "Give the created object a name (e.g. $f1) to use it later")]
         public string AssignAiName { get; set; }
 
+        [AiParam("search_ai_name", Description = "The name of the search result to select (e.g. '$q1')")]
+        public string SearchAiName { get; set; }
+
         // Универсальный метод поиска целей для ВСЕХ наследников
         protected List<ElementId> ResolveTargets(IRevitContext context)
         {
             // 1. Пытаемся найти ключ ($q1, $f1 и т.д.) в едином хранилище
             if (!string.IsNullOrEmpty(TargetAiName) &&
-                context.SessionContext.Storage.TryGetValue(TargetAiName, out var storedIds))
+                context.Storage.StorageValue(TargetAiName, out List<ElementId> storedIds))
             {
                 return storedIds; // Возвращаем список (хоть 1, хоть 1000 элементов)
             }
@@ -46,7 +51,7 @@ namespace RevitAIProject.Logic.Actions
         {
             if (!string.IsNullOrEmpty(AssignAiName) && AssignAiName.StartsWith("$f") && (newIds != null && newIds.Count() > 0))
             {
-                context.SessionContext.Store(AssignAiName,  newIds );
+                context.Storage.Store(AssignAiName, newIds );
             }
         }
 
@@ -54,7 +59,58 @@ namespace RevitAIProject.Logic.Actions
         public void Execute(IRevitApiService apiService)
         {
             // Просто регистрируем лямбду. Наследник об этом даже не знает.
-            apiService.AddToQueue(context => Execute(context));
+            apiService.AddToQueue(context =>
+            {
+                try
+                {
+                    Execute(context);
+
+                    foreach(var report in _reports)
+                    {
+                        apiService.Report(report.Value, report.Key);
+
+                        Debug.WriteLine($"{report.Value}\n", this.GetType().Name);
+                    }
+
+                }
+                catch (Exception ex)
+                {
+                    apiService.Report($"{ex.Message}", RevitMessageType.Error);
+
+                    Debug.WriteLine($"Error: {ex.Message}\n", this.GetType().Name);
+                }
+            });
+        }
+
+        private SortedList<RevitMessageType, string> _reports = new SortedList<RevitMessageType, string>();
+
+        protected void Report(string message, RevitMessageType type)
+        {
+            // Если это НЕ отчет для ИИ — просто пробрасываем текст как есть
+            if (type != RevitMessageType.AiReport)
+            {
+                _reports.Add(type, message);
+            }
+            else
+            {
+                // Формируем "умный" рапорт для ИИ
+                string className = this.GetType().GetCustomAttribute<Logic.AiParamAttribute>()?.Name;
+                var labels = new System.Collections.Generic.List<string>();
+
+                // Собираем ВСЕ заполненные метки
+                if (!string.IsNullOrEmpty(TargetAiName)) labels.Add($"Target: '{TargetAiName}'");
+                if (!string.IsNullOrEmpty(SearchAiName)) labels.Add($"Search: '{SearchAiName}'");
+                if (!string.IsNullOrEmpty(AssignAiName)) labels.Add($"Assign: '{AssignAiName}'");
+
+                // Склеиваем метки через запятую, если они есть
+                string labelInfo = labels.Count > 0
+                    ? $" ({string.Join(", ", labels)})"
+                    : string.Empty;
+
+                string fullReport = $"[{className}]{labelInfo}: {message}";
+
+                _reports.Add(type, fullReport);
+            }
         }
 
         // ВНУТРЕННИЙ МЕТОД (реализует программист в MoveAction и т.д.)
