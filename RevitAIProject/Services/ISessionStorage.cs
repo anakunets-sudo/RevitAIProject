@@ -9,9 +9,9 @@ namespace RevitAIProject.Services
 {
     public interface ISessionStorage
     {
-        FilteredElementCollector CurrentCollector { get; }
-        void Store(FilteredElementCollector collector);
+        void Store(string key, FilteredElementCollector collector);
         void Store(string key, IEnumerable<ElementId> foundIds);
         bool StorageValue(string key, out List<ElementId> foundIds);
+        bool CollectorValue(string key, out FilteredElementCollector collector);
     }
 }

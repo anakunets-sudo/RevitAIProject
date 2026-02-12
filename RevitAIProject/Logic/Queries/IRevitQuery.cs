@@ -9,8 +9,6 @@ namespace RevitAIProject.Logic.Queries
 {
     public interface IRevitQuery : IRevitLogic
     {
-        string CategoryName { get; set; }
 
-        string SearchAiName { get; set; }
     }
 }

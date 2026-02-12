@@ -19,20 +19,12 @@ namespace RevitAIProject.Logic.Queries
         [AiParam("search_ai_name", Description = "Give your completed search a name (e.g. search_walls) to use later")]
         public string SearchAiName { get; set; }
 
-        [AiParam("categoryName", Description = "Revit BuiltInCategory name (e.g. OST_Walls)")]
-        public string CategoryName { get; set; }
-        /*protected void RegisterFoundedElements(IRevitContext context, IEnumerable<ElementId> foundIds)
+        protected BuiltInCategory ResolveCategory(string categoryName)
         {
-            string key = !string.IsNullOrEmpty(SearchAiName) ? SearchAiName : $"$q_{Guid.NewGuid().ToString().Substring(0, 4)}";
-
-            context.SessionContext.Store(key, foundIds);
-        }*/
-        protected BuiltInCategory ResolveCategory()
-        {
-            if (string.IsNullOrEmpty(CategoryName)) return BuiltInCategory.INVALID;
+            if (string.IsNullOrEmpty(categoryName)) return BuiltInCategory.INVALID;
 
             // 1. Максимальная очистка строки
-            string target = CategoryName.Trim().Replace("\"", "").Replace("'", "");
+            string target = categoryName.Trim().Replace("\"", "").Replace("'", "");
 
             // 2. Список вариантов для проверки (OST_Windows, Windows, Window)
             var variants = new System.Collections.Generic.List<string> { target };
@@ -74,7 +66,7 @@ namespace RevitAIProject.Logic.Queries
 
                     foreach(var report in _reports)
                     {
-                        apiService.Report(report.Value, report.Key);
+                        apiService.Report($"{this.GetHashCode()}{report.Value}", report.Key);
 
                         Debug.WriteLine(report.Value + "\n", this.GetType().Name);
                     }
@@ -88,15 +80,13 @@ namespace RevitAIProject.Logic.Queries
             });
         }
 
-        protected void ReportAndRegisterSearched(IRevitContext context, IEnumerable<ElementId> newIds)
+        protected void RegisterSearched(IRevitContext context, IEnumerable<ElementId> newIds)
         {
             if (newIds != null)
             {
                 string key = !string.IsNullOrEmpty(SearchAiName) ? SearchAiName : $"$q_{Guid.NewGuid().ToString().Substring(0, 4)}";
 
-                context.Storage.Store(key, newIds);                
-
-                Report($"Items found: {newIds.Count()}", RevitMessageType.AiReport);
+                context.Storage.Store(key, newIds);  
 
                 Debug.WriteLine($"Items found: {newIds.Count()}", this.GetType().Name);
             }
@@ -106,19 +96,7 @@ namespace RevitAIProject.Logic.Queries
 
         protected void Report(string message, RevitMessageType type)
         {
-            // Если это НЕ отчет для ИИ — просто пробрасываем текст как есть
-            if (type != RevitMessageType.AiReport)
-            {
-                _reports.Add(type, message);
-            }
-            else
-            {
-                // 5. УМНЫЙ РАПОРТ: Сразу даем ИИ цифры и контекст
-                string categoryLabel = !string.IsNullOrEmpty(CategoryName) ? $" ({CategoryName})" : "";
-                string msg = $"{message}{categoryLabel}.";
-
-                _reports.Add(type, msg);
-            }
+            _reports.Add(type, message);
         }
 
         // ВНУТРЕННИЙ МЕТОД (реализует программист в MoveAction и т.д.)

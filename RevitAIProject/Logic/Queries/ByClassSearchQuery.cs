@@ -1,4 +1,5 @@
 ﻿using RevitAIProject.Logic.Queries;
+using RevitAIProject.Services;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -8,8 +9,8 @@ using System.Threading.Tasks;
 
 namespace RevitAIProject.Logic.Queries
 {
-    [AiParam("ByClassQuery", Description = "Filters by Class: Wall, Floor, FamilyInstance, etc.")]
-    public class ByClassQuery : BaseRevitQuery
+    [AiParam("ByClassSearch", Description = "Filters by Class: Wall, Floor, FamilyInstance, etc.")]
+    public class ByClassSearchQuery : BaseRevitQuery
     {
         [AiParam("targetClass", Description = "Revit class name: Wall, Floor, FamilyInstance, etc.")]
         public string ClassName { get; set; }
@@ -22,11 +23,26 @@ namespace RevitAIProject.Logic.Queries
 
                 if (type != null)
                 {
-                    var collector = context.Storage.CurrentCollector.OfClass(type);
+                    if (context.Storage.CollectorValue(SearchAiName, out var collector))
+                    {
+                        collector = collector.OfClass(type);
 
-                    context.Storage.Store(collector);
+                        context.Storage.Store(SearchAiName, collector);
 
-                    ReportAndRegisterSearched(context, collector.ToElementIds());
+                        var ids = collector.ToElementIds();
+
+                        RegisterSearched(context, ids);
+
+                        string label = !string.IsNullOrEmpty(ClassName) ? $" ({ClassName})" : "";
+
+                        Report($"Items found: {ids.Count}{label}.", RevitMessageType.AiReport);
+
+                        Debug.WriteLine($"{collector.Count()}", this.GetType().Name);
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"Collector '{SearchAiName}' not found", this.GetType().Name);
+                    }
                 }
             }
         }

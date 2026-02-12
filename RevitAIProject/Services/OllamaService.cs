@@ -27,49 +27,51 @@ namespace RevitAIProject.Services
         {
             StringBuilder sb = new StringBuilder();
 
-            // 1. ROLE & CORE MISSION
+            // 1. ROLE & CORE MISSION (Без изменений)
             sb.Append("### ROLE: Revit 2019 AI Automation Agent (C# 7.3 / Revit API). ");
             sb.Append("### CORE MISSION: Convert user intent into Revit API Commands (Actions or Queries). ");
 
-            // 2. ПРАВИЛО ВНУТРЕННЕГО ПЕРЕВОДА & КАТЕГОРИЙ
+            // 2. ПРАВИЛО ВНУТРЕННЕГО ПЕРЕВОДА & КАТЕГОРИЙ (Без изменений)
             sb.Append("### STEP 0: MANDATORY CATEGORY PROTOCOL. ");
             sb.Append("1. Before any analysis, ALWAYS translate the user's message into ENGLISH in your thought process. ");
             sb.Append("2. ALWAYS translate the user's element request into English (e.g., 'окна' -> 'Windows'). ");
             sb.Append("3. For 'categoryName', ALWAYS use the official Revit BuiltInCategory string starting with 'OST_'. ");
             sb.Append("Example: 'walls' -> 'OST_Walls', 'windows' -> 'OST_Windows', 'doors' -> 'OST_Doors'. ");
 
-            // 3. ПРАВИЛО ОБРАБОТКИ ПУСТОГО РЕЗУЛЬТАТА
+            // 3. ПРАВИЛО ОБРАБОТКИ ПУСТОГО РЕЗУЛЬТАТА (Без изменений)
             sb.Append("### STEP 1: EMPTY RESULTS PROTOCOL. ");
             sb.Append("If the 'SYSTEM_REPORT' states that 0 elements were found, YOU MUST NOT REPEAT THE SEARCH COMMAND. ");
             sb.Append("Instead, provide a final text response in the user's language stating that nothing was found. ");
 
-            // 4. STRICT FORMATTING
+            // 4. STRICT FORMATTING (Без изменений)
             sb.Append("### RESPONSE FORMAT RULES: ");
             sb.Append("1. Respond ONLY with a raw JSON object. No markdown code blocks (```json). ");
             sb.Append("2. PROHIBITED: No conversational preambles (e.g., 'Sure!', 'I will help'). ");
             sb.Append("3. Detect user language. Write 'message' in the SAME language as the user. ");
 
-            // 5. ХРАНИЛИЩЕ ДАННЫХ (SESSION CONTEXT & CHAINING)
+            // 5. ХРАНИЛИЩЕ ДАННЫХ (ОБНОВЛЕНО: Железобетонное правило 1:1)
             sb.Append("### SESSION STORAGE (Context Management): ");
-            sb.Append("1. 'storage': Use unique keys starting with '$q' for searches (e.g., '$q1' for windows, '$q2' for walls). ");
-            sb.Append("2. To act on elements found in a previous step, set 'target_ai_name' to the corresponding key (e.g., '$q1'). ");
-            sb.Append("3. For new elements, use 'assign_ai_name' with '$f' prefix (e.g., '$f1'). ");
-            sb.Append("4. If multiple categories are requested, generate multiple 'GetElements' actions with unique 'search_ai_name' keys. ");
+            sb.Append("1. 'storage': Use unique keys starting with '$q' (e.g., '$q1', '$q2'). ");
+            sb.Append("2. **IRON RULE: ONE VARIABLE = ONE Create**. Every search for a new '$q' variable MUST strictly start with its own fresh 'Create' command. ");
+            sb.Append("3. **SINGLE-USE COLLECTOR**: A search chain is a one-way funnel. Once you filter by category, the collector is 'spent'. ");
+            sb.Append("4. **FORBIDDEN**: Never search for different categories or classes (e.g., Windows and Walls) after a single 'Create'. Always reset with a new 'Create' for each category or class. ");
+            sb.Append("5. To act on found elements, set 'target_ai_name' to the corresponding key (e.g., '$q1'). ");
 
-            // 3. THE SEARCH FUNNEL (PRIORITY)
+            // 6. SEARCH ALGORITHM (ОБНОВЛЕНО: Логика выбора Scope)
             sb.Append("### SEARCH ALGORITHM (THE FUNNEL): ");
-            sb.Append("1. SCOPE: Call 'InitActiveViewQuery' (default) or 'InitGlobalQuery'. ");
-            sb.Append("2. FAST FILTER: Apply 'ByCategoryQuery' (e.g., OST_Walls) or 'ByClassQuery'. ");
-            sb.Append("3. SPATIAL: Use 'ByLevelQuery' for floor-based filtering. If Level IDs are unknown, call 'GetLevelsAction' first. ");
-            sb.Append("4. DEEP FILTER: Use 'ByParamJsonQuery' for specific parameters (Mark, Material, etc.) using JSON rules. ");
+            sb.Append("1. **SCOPE SELECTION**: For EACH sequence, choose 'Create' carefully. ");
+            sb.Append("- Use 'CreateActiveViewQuery' IF user says 'on view', 'here', 'current plan'. ");
+            sb.Append("- Use 'CreateGlobalQuery' IF user says 'in project', 'total', 'all' or no scope specified. ");
+            sb.Append("4. DEEP FILTER: Use 'ByParamJsonQuery' for specific parameters. ");
+            sb.Append("2. FAST FILTER: Apply 'ByCategoryQuery' or 'ByClassQuery'. ");
+            sb.Append("3. SPATIAL: Use 'ByLevelQuery'. Call 'GetLevelsAction' first if Level IDs are unknown. ");
+            sb.Append("4. DEEP FILTER: Use 'ByParamJsonQuery' for specific parameters. ");
 
-            // 6. EXECUTION STRATEGY
+            // 7. EXECUTION STRATEGY (ОБНОВЛЕНО: Шаблон для Multi-Search)
             sb.Append("### EXECUTION STRATEGY: ");
+            sb.Append("1. [QUERIES]: For 'Find' or 'Count', use THE FUNNEL: [Create] -> [Filters]. ");
+            sb.Append("Example for two variables '$q': [CreateGlobal] -> [ByCategory(Walls, $q1)] -> [CreateActiveView] -> [ByCategory(Doors, $q2)]. ");
 
-            // Правило для запросов: напоминаем про Воронку (Init -> Category -> Filter)
-            sb.Append("1. [QUERIES]: For 'Find', 'Count', or 'Identify', use THE FUNNEL sequence. ");
-            sb.Append("Start with 'InitActiveViewQuery' (default) or 'InitGlobalQuery'. ");
-            sb.Append("Always set 'search_ai_name' (e.g., '$q1') in the LAST query of the chain to save results. ");
 
             // Правило для действий: Create, Move, Delete
             sb.Append("2. [ACTIONS]: Use Action commands for 'Create', 'Move', 'Delete', 'SelectElements'. ");
@@ -77,12 +79,12 @@ namespace RevitAIProject.Services
 
             // Правило для связок (Chaining): Поиск + Действие
             sb.Append("3. [CHAINING]: You MUST chain search and actions. ");
-            sb.Append("Example sequence: [InitActiveViewQuery] -> [ByCategoryQuery] -> [MoveElementAction(target_ai_name: '$q1')]. ");
+            sb.Append("Example sequence: [CreateActiveViewQuery] -> [ByCategorySearchQuery] -> [MoveElementAction(target_ai_name: '$q1')]. ");
 
             // Правило для пустой выборки (Selection)
             sb.Append("4. [SELECTION]: If 'target_ai_name' is empty, the action applies to the user's current manual selection in Revit UI. ");
 
-            // 7. ДИНАМИЧЕСКИЕ КОМАНДЫ (Reflection-based)
+            // 8. ДИНАМИЧЕСКИЕ КОМАНДЫ (Reflection-based)
             sb.Append("### AVAILABLE COMMANDS & PARAMETERS: ");
             sb.Append(GetDynamicCommandsDescription());
 
@@ -91,7 +93,7 @@ namespace RevitAIProject.Services
             sb.Append("1. UNITS: Always include units for 'double' types (e.g., '300mm', '10ft'). ");
             sb.Append("2. FILTERS: 'filterJson' must be a double-escaped JSON string. ");
 
-            // 9. ФОРМАТ ОТВЕТА (Strict JSON Schema)
+            // 10. ФОРМАТ ОТВЕТА (Strict JSON Schema)
             sb.Append("### RESPONSE SCHEMA: ");
             sb.Append("{ ");
             sb.Append("  \"message\": \"Description in user language\", ");
@@ -107,28 +109,36 @@ namespace RevitAIProject.Services
         {
             StringBuilder sb = new StringBuilder();
 
-            // Example 1: Basic Counting (Using the Funnel)
+            // Example 1: Basic Counting (Уточняем комментарий)
             sb.AppendLine("User: 'How many walls are in the project?'");
             sb.AppendLine(@"Response: { ""message"": ""Counting all walls in the project..."", ""actions"": [ 
-        { ""action"": ""InitGlobalQuery"" }, 
-        { ""action"": ""ByCategoryQuery"", ""categoryName"": ""OST_Walls"", ""search_ai_name"": ""$q1"" } 
-    ] }");
+{ ""action"": ""CreateGlobalQuery"" }, 
+{ ""action"": ""ByCategorySearchQuery"", ""categoryName"": ""OST_Walls"", ""search_ai_name"": ""$q1"" } 
+] }");
+            // Example 1.1: Basic Counting (Уточняем комментарий)
+            sb.AppendLine("User: 'How many floors are there in the view and wall types in the project?'");
+            sb.AppendLine(@"Response: { ""message"": ""Counting floors in the view and the types of walls in the project..."", ""actions"": [ 
+{ ""action"": ""CreateActiveViewQuery"" }, 
+{ ""action"": ""ByCategorySearchQuery"", ""categoryName"": ""OST_Floors"", ""search_ai_name"": ""$q1"" } 
+{ ""action"": ""CreateGlobalQuery"" }, 
+{ ""action"": ""ByClassSearchQuery"", ""className"": ""WallType"", ""search_ai_name"": ""$q2"" } 
+] }");
 
-            // Example 2: Filtering by Level (Using GetLevelsAction + ByLevelQuery)
+            // Example 2: Filtering by Level (Показываем осознанный выбор InitActiveView)
             sb.AppendLine("User: 'Find all doors on Level 1'");
-            sb.AppendLine(@"Response: { ""message"": ""First, I will identify Level 1 ID, then find the doors."", ""actions"": [ 
-        { ""action"": ""GetLevelsAction"" }, 
-        { ""action"": ""InitActiveViewQuery"" }, 
-        { ""action"": ""ByCategoryQuery"", ""categoryName"": ""OST_Doors"" }, 
-        { ""action"": ""ByLevelQuery"", ""levelIdString"": ""REPLACE_WITH_LEVEL_ID_FROM_RESULT"", ""search_ai_name"": ""$q1"" } 
-    ] }");
+            sb.AppendLine(@"Response: { ""message"": ""Identifying Level 1 and searching on current view."", ""actions"": [ 
+{ ""action"": ""GetLevelsAction"" }, 
+{ ""action"": ""CreateActiveViewQuery"" }, 
+{ ""action"": ""ByCategorySearchQuery"", ""categoryName"": ""OST_Doors"" }, 
+{ ""action"": ""ByLevelSearchQuery"", ""levelIdString"": ""REPLACE_WITH_LEVEL_ID_FROM_RESULT"", ""search_ai_name"": ""$q1"" } 
+] }");
 
             // Example 3: Complex Filtering (Funnel + Parameter JSON)
             sb.AppendLine("User: 'Find 300mm walls and delete them'");
             sb.AppendLine(@"Response: { ""message"": ""Finding 300mm walls to delete them."", ""actions"": [ 
-        { ""action"": ""InitGlobalQuery"" }, 
-        { ""action"": ""ByCategoryQuery"", ""categoryName"": ""OST_Walls"" }, 
-        { ""action"": ""ByParamJsonQuery"", ""filterJson"": ""[{\""p\"":\""Width\"",\""o\"":\""equals\"",\""v\"":\""300\""}]"", ""search_ai_name"": ""$q1"" }, 
+        { ""action"": ""CreateGlobalQuery"" }, 
+        { ""action"": ""ByCategorySearchQuery"", ""categoryName"": ""OST_Walls"" }, 
+        { ""action"": ""ByParamJsonSearchQuery"", ""filterJson"": ""[{\""p\"":\""Width\"",\""o\"":\""equals\"",\""v\"":\""300\""}]"", ""search_ai_name"": ""$q1"" }, 
         { ""action"": ""DeleteElementsAction"", ""target_ai_name"": ""$q1"" } 
     ] }");
 
@@ -150,6 +160,16 @@ namespace RevitAIProject.Services
             sb.AppendLine(@"Response: { ""message"": ""Moving your current selection up."", ""actions"": [ 
         { ""action"": ""MoveElementAction"", ""target_ai_name"": """", ""dx"": 0, ""dy"": 0, ""dz"": 200 } 
     ] }");
+
+            // НОВЫЙ Example 7: Множественный поиск (Демонстрация INDEPENDENT CHAINS)
+            // Это самый важный пример для твоей текущей задачи!
+            sb.AppendLine("User: 'Count all windows on this view and all doors in the project'");
+            sb.AppendLine(@"Response: { ""message"": ""Counting windows on view and doors globally."", ""actions"": [ 
+{ ""action"": ""CreateActiveViewQuery"" }, 
+{ ""action"": ""ByCategorySearchQuery"", ""categoryName"": ""OST_Windows"", ""search_ai_name"": ""$q1"" },
+{ ""action"": ""CreateGlobalQuery"" }, 
+{ ""action"": ""ByCategorySearchQuery"", ""categoryName"": ""OST_Doors"", ""search_ai_name"": ""$q2"" } 
+] }");
 
             return sb.ToString();
         }

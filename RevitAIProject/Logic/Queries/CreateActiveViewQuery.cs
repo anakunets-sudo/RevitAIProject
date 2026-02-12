@@ -10,12 +10,14 @@ using System.Windows.Media;
 
 namespace RevitAIProject.Logic.Queries
 {
-    [AiParam("InitViewQuery", Description = "Starts searching only in the active view.")]
-    public class InitActiveViewQuery : BaseRevitQuery
+    [AiParam("CreateActiveView", Description = "ONLY creates the scope by active view for a new search. Does not support filtering.")]
+    public class CreateActiveViewQuery : BaseRevitQuery
     {
         protected override void Execute(IRevitContext context)
         {
-            context.Storage.Store(new FilteredElementCollector(context.UIDoc.Document, context.UIDoc.Document.ActiveView.Id));
+            var collector = new FilteredElementCollector(context.UIDoc.Document, context.UIDoc.Document.ActiveView.Id);
+
+            context.Storage.Store(SearchAiName, new FilteredElementCollector(context.UIDoc.Document, context.UIDoc.Document.ActiveView.Id));
 
             Report($"This collector for collecting on ACTIVE VIEW was created.", Services.RevitMessageType.AiReport);
         }

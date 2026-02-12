@@ -8,8 +8,7 @@ using System.Threading.Tasks;
 namespace RevitAIProject.Services
 {
     public interface ISessionContext: ISessionStorage, ISessionReport
-    {
-        Dictionary<string, List<ElementId>> Storage { get; }        
+    {     
         void Reset();
     }
 }

@@ -2,6 +2,7 @@
 using RevitAIProject.Logic;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Runtime.Remoting.Contexts;
 using System.Text;
@@ -17,29 +18,37 @@ namespace RevitAIProject.Services
     [AiParam("сurrentCollector", Description = "Provider of storage for various types of data")]
     public class SessionContext : ISessionContext
     {
-        [AiParam("сurrentCollector", Description = "Temporary Collector for storing intermediate search results")]
-        public FilteredElementCollector CurrentCollector { get; private set; }
+        private readonly Dictionary<string, FilteredElementCollector> _collectors = new Dictionary<string, FilteredElementCollector>();
+
+        [AiParam("сollectors", Description = "Temporary Collector for storing intermediate search results")]
+        public IReadOnlyDictionary<string, FilteredElementCollector> Collectors => _collectors;
+
+        private readonly Dictionary<string, List<ElementId>> _storage = new Dictionary<string, List<ElementId>>();
 
         [AiParam("storage", Description = "Unified session storage for all entities. " +
                                   "Stores search results ($q1, $q2) and created/modified elements ($f1, $f2) as lists of ElementIds. " +
                                   "Use these keys in 'target_ai_name' of subsequent actions to reference previously found or created objects.")]
-        public Dictionary<string, List<ElementId>> Storage { get; } = new Dictionary<string, List<ElementId>>();
+        public IReadOnlyDictionary<string, List<ElementId>> Storage => _storage;
 
-        public void Store(FilteredElementCollector collector)
+        public void Store(string key, FilteredElementCollector collector)
         {
-            CurrentCollector = collector;
+            _collectors[key] = collector;
+        }
+
+        public bool CollectorValue(string key, out FilteredElementCollector collector)
+        {
+            _collectors.TryGetValue(key, out FilteredElementCollector coll);
+            collector = coll;
+            return true;
         }
 
         public void Store(string key, IEnumerable<ElementId> foundIds)
         {
-            Storage[key] = new List<ElementId>(foundIds);
-
-            CurrentCollector = null;
+            _storage[key] = new List<ElementId>(foundIds);
         }
         public bool StorageValue(string key, out List<ElementId> foundIds)
         {
             Storage.TryGetValue(key, out List<ElementId> typedIds);
-
             foundIds = typedIds;
             return true;
         }        
@@ -69,8 +78,8 @@ namespace RevitAIProject.Services
         }
         public void Reset()
         {
-            CurrentCollector = null;
-            Storage.Clear();
+            _collectors.Clear();
+            _storage.Clear();
             _reports.Clear();
         }
     }

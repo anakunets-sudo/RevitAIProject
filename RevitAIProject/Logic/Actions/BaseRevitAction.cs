@@ -67,7 +67,7 @@ namespace RevitAIProject.Logic.Actions
 
                     foreach(var report in _reports)
                     {
-                        apiService.Report(report.Value, report.Key);
+                        apiService.Report($"{this.GetHashCode()}{report.Value}", report.Key);
 
                         Debug.WriteLine($"{report.Value}\n", this.GetType().Name);
                     }
