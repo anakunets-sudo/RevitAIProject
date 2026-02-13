@@ -10,8 +10,8 @@ using System.Threading.Tasks;
 
 namespace RevitAIProject.Logic.Queries
 {
-    [AiParam("ByParamJsonSearchQuery", Description = "Complex filter using JSON rules for parameters.")]
-    public class ByParamJsonSearchQuery : BaseRevitQuery
+    [AiParam("ByParamJson", Description = "Complex filter using JSON rules for parameters.")]
+    public class ByParamJsonQuery : BaseSearchQuery
     {
         [AiParam("categoryName", Description = "Revit BuiltInCategory name (e.g. OST_Walls)")]
         public string CategoryName { get; set; }

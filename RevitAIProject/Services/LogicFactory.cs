@@ -18,29 +18,18 @@ namespace RevitAIProject.Services
         {
             if (string.IsNullOrEmpty(actionName)) return null;
 
-            // 1. Поиск типа по атрибуту [AiParam] или имени класса
-            Type logicType = Assembly.GetExecutingAssembly().GetTypes()
-                .Where(t => typeof(IRevitLogic).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract)
-                .FirstOrDefault(t =>
-                {
-                    var attr = t.GetCustomAttribute<AiParamAttribute>();
-                    if (attr != null && actionName.Equals(attr.Name, StringComparison.OrdinalIgnoreCase))
-                        return true;
+            // 1. Мгновенно берем тип из кэша вместо сканирования всей сборки
+            var logicTypes = TypeRegistry.GetLogicTypes();
 
-                    string cleanClassName = t.Name.Replace("Action", "").Replace("Query", "");
-                    return cleanClassName.Equals(actionName, StringComparison.OrdinalIgnoreCase)
-                        || t.Name.Equals(actionName, StringComparison.OrdinalIgnoreCase);
-                });
-
-            if (logicType == null)
+            if (!logicTypes.TryGetValue(actionName.ToLower(), out Type logicType))
             {
-                System.Diagnostics.Debug.WriteLine($"[LogicFactory]: Type '{actionName}' not found.");
+                System.Diagnostics.Debug.WriteLine($"[LogicFactory]: Action '{actionName}' not found.");
                 return null;
             }
 
             IRevitLogic logicInstance = (IRevitLogic)Activator.CreateInstance(logicType);
 
-            // 2. Заполнение свойств данными
+            // 2. Заполнение свойств (уже реализовано тобой)
             MapJsonToProperties(logicInstance, data);
 
             return logicInstance;

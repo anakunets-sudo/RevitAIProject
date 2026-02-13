@@ -11,15 +11,17 @@ using System.Windows.Media;
 namespace RevitAIProject.Logic.Queries
 {
     [AiParam("CreateActiveView", Description = "ONLY creates the scope by active view for a new search. Does not support filtering.")]
-    public class CreateActiveViewQuery : BaseRevitQuery
+    public class CreateActiveViewQuery : BaseSearchQuery
     {
         protected override void Execute(IRevitContext context)
         {
             var collector = new FilteredElementCollector(context.UIDoc.Document, context.UIDoc.Document.ActiveView.Id);
 
-            context.Storage.Store(SearchAiName, new FilteredElementCollector(context.UIDoc.Document, context.UIDoc.Document.ActiveView.Id));
+            string key = !string.IsNullOrEmpty(SearchAiName) ? SearchAiName : "$q_current";
 
-            Report($"This collector for collecting on ACTIVE VIEW was created.", Services.RevitMessageType.AiReport);
+            context.Storage.Store(key, collector);
+
+            Report($"This collector {key} for collecting on ACTIVE VIEW was created.", Services.RevitMessageType.AiReport);
         }
     }
 }

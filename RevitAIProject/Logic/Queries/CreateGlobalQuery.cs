@@ -8,16 +8,18 @@ using System.Threading.Tasks;
 
 namespace RevitAIProject.Logic.Queries
 {
-    [AiParam("CreateGlobalQuery", Description = "ONLY creates the scope for the entire project for a new search. Does not support filtering.")]
-    public class CreateGlobalQuery : BaseRevitQuery
+    [AiParam("CreateGlobal", Description = "ONLY creates the scope for the entire project for a new search. Does not support filtering.")]
+    public class CreateGlobalQuery : BaseSearchQuery
     {
         protected override void Execute(IRevitContext context)
         {
             var collector = new FilteredElementCollector(context.UIDoc.Document);
 
-            context.Storage.Store(SearchAiName, new FilteredElementCollector(context.UIDoc.Document));
+            string key = !string.IsNullOrEmpty(SearchAiName) ? SearchAiName : "$q_current";
 
-            Report($"The collector for collecting in the ENTIRE project was created.", Services.RevitMessageType.AiReport);
+            context.Storage.Store(key, collector);
+
+            Report($"The collector {key} for collecting in the ENTIRE project was created.", Services.RevitMessageType.AiReport);
         }
     }
 }

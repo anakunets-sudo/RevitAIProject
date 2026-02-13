@@ -39,7 +39,7 @@ namespace RevitAIProject.Services
         {
             _collectors.TryGetValue(key, out FilteredElementCollector coll);
             collector = coll;
-            return true;
+            return collector == null ? false : true;
         }
 
         public void Store(string key, IEnumerable<ElementId> foundIds)
@@ -50,7 +50,7 @@ namespace RevitAIProject.Services
         {
             Storage.TryGetValue(key, out List<ElementId> typedIds);
             foundIds = typedIds;
-            return true;
+            return foundIds == null ? false : true;
         }        
 
         //ISessionReport (Шина событий) ---

@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 namespace RevitAIProject.Logic.Queries
 {
     [AiParam("", Description = "Internal name of the query.")]
-    public abstract class BaseRevitQuery : IRevitQuery
+    public abstract class BaseSearchQuery : IRevitQuery
     {
         [AiParam("search_ai_name", Description = "Give your completed search a name (e.g. search_walls) to use later")]
         public string SearchAiName { get; set; }
@@ -86,14 +86,15 @@ namespace RevitAIProject.Logic.Queries
             {
                 string key = !string.IsNullOrEmpty(SearchAiName) ? SearchAiName : $"$q_{Guid.NewGuid().ToString().Substring(0, 4)}";
 
-                context.Storage.Store(key, newIds);  
+                context.Storage.Store(key, newIds);
+
+                Report($"Found {newIds.Count()} elements for search '{SearchAiName}'.", RevitMessageType.AiReport);
 
                 Debug.WriteLine($"Items found: {newIds.Count()}", this.GetType().Name);
             }
         }
 
         private SortedList<RevitMessageType, string> _reports = new SortedList<RevitMessageType, string>();
-
         protected void Report(string message, RevitMessageType type)
         {
             _reports.Add(type, message);
