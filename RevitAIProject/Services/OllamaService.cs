@@ -75,7 +75,7 @@ namespace RevitAIProject.Services
             string lastReports = string.Join(" | ", _sessionContext.GetAiMessages());
 
             return "### ROLE: Revit 2019 AI Automation Agent (C# 7.3 / Revit API).\n" +
-                   "### CORE MISSION: Convert user intent into Revit API Commands.\n\n" +
+                   "### CORE MISSION: \r\n1. Convert user intent ONLY into pre-defined Revit API Actions.\r\n2. STRICT RULE: If no specialized Action matches the user's request, DO NOT generate code. \r\n3. RESPONSE PROTOCOL: Politely inform the user that the requested function is currently \r\n   not supported and suggest available alternatives from your Action library \r\n   (e.g., searching, deleting, or moving elements)."+
 
                    "### STEP 1: CONTEXT AWARENESS (LIVE DATA):\n" +
                    "- CURRENT SESSION STORAGE: [" + currentVars + "]\n" +
@@ -101,18 +101,6 @@ namespace RevitAIProject.Services
                     "2. SELECTION: If user says 'this', 'selected' or 'highlighted', use 'scope_selection'.\n" +
                     "3. CHAINING: If you search to delete/modify, the 'assign_ai_name' (e.g. $a1) MUST be passed to the next action's 'target_ai_name'.\n" + 
                     "4. SEARCH RULE: Always search for different categories into DIFFERENT variables (e.g., Windows to \r\na2) to avoid manual filtering in C#."+
-
-                   "### STEP 9: EMERGENCY DYNAMIC CODE (V1.8.3 - STRICT):\n" +
-"1. EXECUTION CONTEXT: You are writing ONLY the body of a C# method. No namespaces, no classes.\n" +
-"2. PRE-DECLARED: Variables 'doc', 'uidoc', 'ids' (List<ElementId>), and 'context' ALREADY EXIST. Do NOT declare them.\n" +
-"3. NO TRANSACTIONS: A Transaction is ALREADY STARTED in the parent Action. DO NOT use 'new Transaction' or 't.Start()'. This will CRASH the system.\n" +
-"4. ASSIGNING: To save created elements for later, use: context.Storage.Store(AssignAiName, createdList);\n" +
-"5. EXAMPLE (Wall): \n" +
-"   Level lvl = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().First();\n" +
-"   Line line = Line.CreateBound(new XYZ(0,0,0), new XYZ(40,40,0));\n" +
-"   Wall.Create(doc, line, new FilteredElementCollector(doc).OfClass(typeof(WallType)).FirstElementId(), lvl.Id, 10, 0, false, false);"
-
- +
 
                    GetDynamicCommandsDescription() + "\n\n";
                    
