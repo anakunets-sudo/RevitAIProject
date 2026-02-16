@@ -64,35 +64,37 @@ namespace RevitAIProject.Logic.Actions
             using (TransactionGroup tg = new TransactionGroup(doc, TransactionName))
             {
                 tg.Start();
+                Floor floor = null;
 
                 using (Transaction tr = new Transaction(doc, TransactionName))
                 {
-
                     tr.Start();
 
                     Level level = doc.ActiveView.GenLevel ??
-                             new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().First();
-
+                                 new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().First();
                     FloorType fType = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().First();
 
-                    Floor floor = doc.Create.NewFloor(profile, fType, level, false);
+                    floor = doc.Create.NewFloor(profile, fType, level, false);
 
-                    RegisterCreatedElement(context, new ElementId[] { floor.Id });
-
-                    Report($"Floor {floor.Id} was created", Services.RevitMessageType.AiReport);
-
+                    // Фиксируем ID для ИИ
+                    Report($"Floor {floor.Id} was created", RevitMessageType.AiReport);
                     tr.Commit();
 
-                    tr.Start();
-                    // Установка смещения
+                    // Смещение
                     if (Math.Abs(OffsetFt) > 0.001)
                     {
+                        tr.Start();
                         Parameter p = floor.get_Parameter(BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM);
-                        if (p != null) p.Set(OffsetFt);
-
-                        Report($"Floor {floor.Id} was offset by {OffsetFt} feet", Services.RevitMessageType.AiReport);
+                        p?.Set(OffsetFt);
+                        Report($"Floor offset set to {OffsetFt} ft", RevitMessageType.AiReport);
+                        tr.Commit();
                     }
-                    tr.Commit();
+                }
+
+                // РЕГИСТРАЦИЯ: Теперь $f1 будет указывать на этот пол в следующих командах
+                if (floor != null)
+                {
+                    RegisterCreatedElements(new[] { floor.Id });
                 }
 
                 tg.Assimilate();

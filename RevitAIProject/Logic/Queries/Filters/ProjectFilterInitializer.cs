@@ -1,4 +1,5 @@
 ﻿using Autodesk.Revit.DB;
+using RevitAIProject.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,7 +12,7 @@ namespace RevitAIProject.Logic.Queries.Filters
     /// Initializer that creates a base collector for the entire Revit project.
     /// Always has the highest priority (0) to start the search chain.
     /// </summary>
-    [AiParam("projectFilterInitializer", Description = "All project search initializer.")]
+    [AiParam("scope_project", Description = "All project search initializer.")]
     public class ProjectFilterInitializer : ISearchFilter, ISearchInitializer
     {
         // <summary>
@@ -27,7 +28,11 @@ namespace RevitAIProject.Logic.Queries.Filters
         /// <returns>A new collector containing all project elements.</returns>
         public FilteredElementCollector Apply(Document doc, FilteredElementCollector collector)
         {
-            return new FilteredElementCollector(doc);
+            collector = new FilteredElementCollector(doc);
+
+            System.Diagnostics.Debug.WriteLine($"Init ProjectFilterInitializer", this.GetType().Name);
+
+            return collector;
         }
     }
 }

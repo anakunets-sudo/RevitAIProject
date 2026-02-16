@@ -16,8 +16,17 @@ namespace RevitAIProject.Logic.Queries
     [AiParam("", Description = "Internal name of the query.")]
     public abstract class BaseSearchQuery : IRevitQuery
     {
-        [AiParam("search_ai_name", Description = "Give your completed search a name (e.g. search_walls) to use later")]
-        public string SearchAiName { get; set; }
+        [AiParam("assign_ai_name", Description = "Give your completed search a name (e.g. search_walls) to use later")]
+        public string AssignAiName { get; set; }
+
+        // Поле защищено (protected), чтобы наследники могли его использовать
+        protected ISessionContext Context { get; private set; }
+
+        // Реализация метода интерфейса
+        public void SetContext(ISessionContext context)
+        {
+            Context = context;
+        }
 
         protected BuiltInCategory ResolveCategory(string categoryName)
         {
@@ -80,15 +89,15 @@ namespace RevitAIProject.Logic.Queries
             });
         }
 
-        protected void RegisterSearched(IRevitContext context, IEnumerable<ElementId> newIds)
+        protected void RegisterSearched(IEnumerable<ElementId> newIds)
         {
             if (newIds != null)
             {
-                string key = !string.IsNullOrEmpty(SearchAiName) ? SearchAiName : $"$q_{Guid.NewGuid().ToString().Substring(0, 4)}";
+                //string key = !string.IsNullOrEmpty(SearchAiName) ? SearchAiName : $"$q_{Guid.NewGuid().ToString//().Substring(0, 4)}";
 
-                context.Storage.Store(key, newIds);
+                Context.Store(AssignAiName, newIds);
 
-                Report($"Found {newIds.Count()} elements for search '{SearchAiName}'.", RevitMessageType.AiReport);
+                Report($"Found {newIds.Count()} elements for search '{AssignAiName}'.", RevitMessageType.AiReport);
 
                 Debug.WriteLine($"Items found: {newIds.Count()}", this.GetType().Name);
             }

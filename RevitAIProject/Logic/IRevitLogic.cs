@@ -1,4 +1,5 @@
-﻿using System;
+﻿using RevitAIProject.Services;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -9,5 +10,6 @@ namespace RevitAIProject.Logic
     public interface IRevitLogic
     {
         void Execute(RevitAIProject.Services.IRevitApiService apiService);
+        void SetContext(ISessionContext context);
     }
 }

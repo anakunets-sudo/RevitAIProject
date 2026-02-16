@@ -15,6 +15,15 @@ namespace RevitAIProject.Logic.Actions
     [AiParam("", Description = "The unique name of the command to execute.")]
     public abstract class BaseRevitAction : IRevitAction
     {
+        // Поле защищено (protected), чтобы наследники могли его использовать
+        protected ISessionContext Context { get; private set; }
+
+        // Реализация метода интерфейса
+        public void SetContext(ISessionContext context)
+        {
+            Context = context;
+        }
+
         internal string TransactionName => "AI: " + this.GetType().GetCustomAttribute<Logic.AiParamAttribute>()?.Name;
 
         [AiParam("target_ai_name", Description = "The name of the element from the previous commands (e.g. $f1) or leave blank for selected objects")]
@@ -22,9 +31,6 @@ namespace RevitAIProject.Logic.Actions
 
         [AiParam("assign_ai_name", Description = "Give the created object a name (e.g. $f1) to use it later")]
         public string AssignAiName { get; set; }
-
-        [AiParam("search_ai_name", Description = "The name of the search result to select (e.g. '$q1')")]
-        public string SearchAiName { get; set; }
 
         // Универсальный метод поиска целей для ВСЕХ наследников
         protected List<ElementId> ResolveTargets(IRevitContext context)
@@ -47,11 +53,12 @@ namespace RevitAIProject.Logic.Actions
             return selection.ToList();
         }
 
-        protected void RegisterCreatedElement(IRevitContext context, IEnumerable<ElementId> newIds)
+        protected void RegisterCreatedElements(IEnumerable<ElementId> ids)
         {
-            if (!string.IsNullOrEmpty(AssignAiName) && AssignAiName.StartsWith("$f") && (newIds != null && newIds.Count() > 0))
+            if (Context != null && !string.IsNullOrEmpty(AssignAiName))
             {
-                context.Storage.Store(AssignAiName, newIds );
+                Context.Store(AssignAiName, ids);
+                Context.Report($"Created elements stored as {AssignAiName}", RevitMessageType.AiReport);
             }
         }
 
@@ -63,33 +70,35 @@ namespace RevitAIProject.Logic.Actions
             {
                 try
                 {
+                    // Очистка локальных отчетов перед выполнением
+                    _reports.Clear();
+
                     Execute(context);
 
-                    foreach(var report in _reports)
+                    foreach (var report in _reports)
                     {
-                        apiService.Report($"{this.GetHashCode()}{report.Value}", report.Key);
-
+                        // Теперь безопасно передаем все накопленные сообщения в глобальный сервис
+                        apiService.Report(report.Value, report.Key);
                         Debug.WriteLine($"{report.Value}\n", this.GetType().Name);
                     }
 
                 }
                 catch (Exception ex)
                 {
-                    apiService.Report($"{ex.Message}", RevitMessageType.Error);
-
+                    apiService.Report(ex.Message, RevitMessageType.Error);
                     Debug.WriteLine($"Error: {ex.Message}\n", this.GetType().Name);
                 }
             });
         }
 
-        private SortedList<RevitMessageType, string> _reports = new SortedList<RevitMessageType, string>();
+        private readonly List<KeyValuePair<RevitMessageType, string>> _reports = new List<KeyValuePair<RevitMessageType, string>>();
 
         protected void Report(string message, RevitMessageType type)
         {
             // Если это НЕ отчет для ИИ — просто пробрасываем текст как есть
             if (type != RevitMessageType.AiReport)
             {
-                _reports.Add(type, message);
+                _reports.Add(new KeyValuePair<RevitMessageType, string>(type, message));
             }
             else
             {
@@ -99,7 +108,6 @@ namespace RevitAIProject.Logic.Actions
 
                 // Собираем ВСЕ заполненные метки
                 if (!string.IsNullOrEmpty(TargetAiName)) labels.Add($"Target: '{TargetAiName}'");
-                if (!string.IsNullOrEmpty(SearchAiName)) labels.Add($"Search: '{SearchAiName}'");
                 if (!string.IsNullOrEmpty(AssignAiName)) labels.Add($"Assign: '{AssignAiName}'");
 
                 // Склеиваем метки через запятую, если они есть
@@ -109,12 +117,44 @@ namespace RevitAIProject.Logic.Actions
 
                 string fullReport = $"[{className}]{labelInfo}: {message}";
 
-                _reports.Add(type, fullReport);
+                _reports.Add(new KeyValuePair<RevitMessageType, string>(type, fullReport));
             }
+        }
+
+        protected List<ElementId> GetTargetIds()
+        {
+            // Приоритет 1: Явное указание цели от ИИ ($f1, $q1)
+            if (!string.IsNullOrEmpty(TargetAiName))
+            {
+                if (Context.StorageValue(TargetAiName, out var ids)) return ids;
+            }
+
+            // Приоритет 2: Результат поиска в ЭТОЙ ЖЕ команде ($q1)
+            // Если ИИ прислал поиск и действие в одном объекте
+            if (!string.IsNullOrEmpty(AssignAiName))
+            {
+                if (Context.StorageValue(AssignAiName, out var ids)) return ids;
+            }
+
+            // Приоритет 3: Последний созданный/найденный объект в сессии (Smart Fallback)
+            // Можно взять последний ключ из Storage, если он там один
+            if (Context.Storage.Keys.Any())
+            {
+                var lastKey = Context.Storage.Keys.Last();
+                if (Context.StorageValue(lastKey, out var ids)) return ids;
+            }
+
+            // Приоритет 4: Ручное выделение пользователем в Revit (Selection)
+            //var selectedIds = ActiveUIDoc.Selection.GetElementIds().ToList();
+            //if (selectedIds.Count > 0) return selectedIds;
+
+            return new List<ElementId>(); // Пусто, если ничего не сработало
         }
 
         // ВНУТРЕННИЙ МЕТОД (реализует программист в MoveAction и т.д.)
         // Здесь НЕТ доступа к apiService, только к контексту выполнения
         protected abstract void Execute(IRevitContext context);
+
+
     }
 }

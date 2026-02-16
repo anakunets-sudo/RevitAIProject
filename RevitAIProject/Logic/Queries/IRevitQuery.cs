@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace RevitAIProject.Logic.Queries
 {
-    public interface IRevitQuery
+    public interface IRevitQuery : IRevitLogic
     {
 
     }

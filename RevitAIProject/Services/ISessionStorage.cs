@@ -9,6 +9,7 @@ namespace RevitAIProject.Services
 {
     public interface ISessionStorage
     {
+        IReadOnlyDictionary<string, List<ElementId>> Storage {  get; }
         void Store(string key, FilteredElementCollector collector);
         void Store(string key, IEnumerable<ElementId> foundIds);
         bool StorageValue(string key, out List<ElementId> foundIds);

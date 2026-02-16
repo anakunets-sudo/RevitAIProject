@@ -1,10 +1,12 @@
-﻿using System;
+﻿using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
-using Autodesk.Revit.UI;
-using Autodesk.Revit.DB;
 
 namespace RevitAIProject
 {
@@ -16,6 +18,19 @@ namespace RevitAIProject
 
         public Result OnStartup(UIControlledApplication a)
         {
+            AppDomain.CurrentDomain.AssemblyResolve += (sender, args) => {
+                string folder = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                string assemblyName = new AssemblyName(args.Name).Name;
+                string path = Path.Combine(folder, assemblyName + ".dll");
+
+                if (File.Exists(path))
+                {
+                    // Читаем байты, чтобы избежать конфликта контекстов загрузки
+                    return Assembly.Load(File.ReadAllBytes(path));
+                }
+                return null;
+            };
+
             // Регистрация панели
             var view = new Views.ChatView(a);
             var paneId = Views.ChatView.PaneId;

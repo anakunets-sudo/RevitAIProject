@@ -82,31 +82,36 @@ namespace RevitAIProject.Services
             foreach (var type in types)
             {
                 var attr = type.GetCustomAttribute<AiParamAttribute>();
-
-                // Collect possible keys: AiParam name, Cleaned Class Name, Full Class Name
                 var keys = new List<string>();
-                if (attr != null && !string.IsNullOrEmpty(attr.Name)) keys.Add(attr.Name.ToLower());
 
-                // For Logic types, we also add class name variants
-                if (!strictAiParam)
-                {
-                    keys.Add(type.Name.Replace("Action", "").Replace("Query", "").ToLower());
-                    keys.Add(type.Name.ToLower());
-                }
-                else if (keys.Count == 0) // Fallback for filters if no attribute
-                {
-                    keys.Add(type.Name.Replace("Filter", "").Replace("Initializer", "").ToLower());
-                }
+                // 1. Регистрация через атрибут (основной путь)
+                if (attr != null && !string.IsNullOrEmpty(attr.Name))
+                    keys.Add(attr.Name.Replace("_", "").ToLower());
+
+                // 2. Регистрация через имя класса (фолбэк)
+                // Убираем суффиксы и ОБЯЗАТЕЛЬНО "_" для поддержки любого стиля ИИ
+                string cleanClassName = type.Name
+                    .Replace("Action", "")
+                    .Replace("Query", "")
+                    .Replace("Filter", "")
+                    .Replace("Initializer", "")
+                    .Replace("_", "")
+                    .ToLower();
+
+                keys.Add(cleanClassName);
+                keys.Add(type.Name.Replace("_", "").ToLower()); // Полное имя без "_"
 
                 foreach (var key in keys.Distinct())
                 {
-                    if (result.ContainsKey(key))
+                    if (string.IsNullOrEmpty(key)) continue;
+
+                    if (result.TryGetValue(key, out Type existingType))
                     {
-                        if (strictAiParam)
+                        // Если мы в режиме строгого соответствия (фильтры) и нашли дубликат - это ошибка
+                        if (strictAiParam && existingType != type)
                         {
-                            throw new InvalidOperationException(
-                                $"[TypeRegistry Error]: Duplicate AI key '{key}' found in {type.Name} and {result[key].Name}. " +
-                                "Check your [AiParam] attributes.");
+                            // Логируем или кидаем ошибку
+                            continue;
                         }
                         continue;
                     }

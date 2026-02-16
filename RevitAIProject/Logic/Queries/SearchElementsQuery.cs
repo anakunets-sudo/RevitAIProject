@@ -38,16 +38,22 @@ namespace RevitAIProject.Logic.Queries.Searches
                 // 3. EXECUTION (The Pipeline)
                 FilteredElementCollector currentCollector = null;
 
+                System.Diagnostics.Debug.WriteLine($"SearchAiName: {AssignAiName}", this.GetType().Name);
+
                 foreach (var wagon in filters)
                 {
                     // Each filter gets the Document and the current Collector
                     currentCollector = wagon.Apply(context.UIDoc.Document, currentCollector);
+
+                    System.Diagnostics.Debug.WriteLine($"SearchAiName: {currentCollector.ToString()}", filters.GetType().Name);
                 }
 
                 // 4. RESULTS
                 var foundIds = currentCollector?.ToElementIds().ToList() ?? new List<ElementId>();
 
-                RegisterSearched(context, foundIds);
+                RegisterSearched(foundIds);
+
+                System.Diagnostics.Debug.WriteLine($"Items found: {foundIds.Count}", this.GetType().Name);
             }
             catch (Exception ex)
             {

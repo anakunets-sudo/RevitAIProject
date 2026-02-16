@@ -31,7 +31,7 @@ namespace RevitAIProject.Logic.Actions
                 Report($"Level name {level.Name} id {level.Id} elevation {level.Elevation} feet defined", Services.RevitMessageType.AiReport);
             }
 
-            RegisterCreatedElement(context, levelIds);
+            RegisterCreatedElements(levelIds);
         }
     }
 }

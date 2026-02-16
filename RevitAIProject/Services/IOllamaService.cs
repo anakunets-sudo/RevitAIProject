@@ -10,6 +10,6 @@ namespace RevitAIProject.Services
     public interface IOllamaService
     {
         // Метод отправки запроса и получения ответа (асинхронно)
-        Task<AiResponse> GetAiResponseAsync(string userMessage, CancellationToken ct);
+        Task<AiResponse> GetAiResponseAsync(string userMessage, ISessionContext sessionContext, CancellationToken ct);
     }
 }

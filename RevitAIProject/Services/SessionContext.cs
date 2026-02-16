@@ -48,8 +48,13 @@ namespace RevitAIProject.Services
         }
         public bool StorageValue(string key, out List<ElementId> foundIds)
         {
-            Storage.TryGetValue(key, out List<ElementId> typedIds);
-            foundIds = typedIds;
+            foundIds = null;
+
+            if (!String.IsNullOrEmpty(key))
+            {
+                Storage.TryGetValue(key, out List<ElementId> typedIds);
+                foundIds = typedIds;
+            }
             return foundIds == null ? false : true;
         }        
 

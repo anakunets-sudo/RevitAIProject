@@ -12,6 +12,7 @@ namespace RevitAIProject.Logic.Queries.Filters
     /// Fast filter for Revit BuiltInCategories. 
     /// Usually applied after ClassFilter to narrow down the element collection.
     /// </summary>
+    [AiParam("category", Description = "Search elemetns by Category.")]
     public class CategoryFilter : ISearchFilter
     {
         /// <summary>

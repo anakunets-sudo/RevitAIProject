@@ -16,11 +16,11 @@ namespace RevitAIProject.Services
     /// </summary>
     public class RevitApiService : IRevitApiService, IRevitContext
     {
-        public RevitApiService()
+        public RevitApiService(ISessionContext sessionContext)
         {
             _handler = new RevitTaskHandler();
             _externalEvent = ExternalEvent.Create(_handler);
-            _sessionContext = new SessionContext();
+            _sessionContext = sessionContext;
         }
 
         private readonly ExternalEvent _externalEvent;

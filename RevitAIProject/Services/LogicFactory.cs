@@ -1,5 +1,6 @@
 ﻿using Newtonsoft.Json.Linq;
 using RevitAIProject.Logic;
+using RevitAIProject.Logic.Actions;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -14,22 +15,32 @@ namespace RevitAIProject.Services
     /// </summary>
     public static class LogicFactory
     {
-        public static IRevitLogic CreateLogic(string actionName, JToken data)
+        public static IRevitLogic CreateLogic(string actionName, JToken data, ISessionContext sessionContext)
         {
             if (string.IsNullOrEmpty(actionName)) return null;
 
-            // 1. Мгновенно берем тип из кэша вместо сканирования всей сборки
+            // Получаем словарь типов (где ключи уже в нижнем регистре и без подчёркиваний)
             var logicTypes = TypeRegistry.GetLogicTypes();
 
-            if (!logicTypes.TryGetValue(actionName.ToLower(), out Type logicType))
+            // НОРМАЛИЗАЦИЯ: убираем "_" и в нижний регистр. 
+            // "create_floor" -> "createfloor"
+            // "CreateFloor"  -> "createfloor"
+            string cleanKey = actionName.Replace("_", "").ToLower();
+
+            if (!logicTypes.TryGetValue(cleanKey, out Type logicType))
             {
-                System.Diagnostics.Debug.WriteLine($"[LogicFactory]: Action '{actionName}' not found.");
+                System.Diagnostics.Debug.WriteLine($"[LogicFactory]: Action '{actionName}' (cleaned: '{cleanKey}') not found.");
                 return null;
             }
 
             IRevitLogic logicInstance = (IRevitLogic)Activator.CreateInstance(logicType);
 
-            // 2. Заполнение свойств (уже реализовано тобой)
+            // Передаем контекст, если экшен его поддерживает
+            if (logicInstance != null)
+            {
+                logicInstance.SetContext(sessionContext);
+            }
+
             MapJsonToProperties(logicInstance, data);
 
             return logicInstance;
@@ -120,8 +131,7 @@ namespace RevitAIProject.Services
             if (lowerInput.Contains("in") || lowerInput.Contains("\"")) return value / 12.0;
             if (lowerInput.Contains("ft") || lowerInput.Contains("'")) return value;
 
-            // По умолчанию считаем, что ИИ прислал миллиметры
-            return value / 304.8;
+            return value ;
         }
     }
 }

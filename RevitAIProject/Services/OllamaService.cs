@@ -1,16 +1,14 @@
-﻿using Autodesk.Revit.DB;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using RevitAIProject.Logic.Queries;
+using RevitAIProject.Logic;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Net.Http;
 using System.Reflection;
+using System.Runtime.Remoting.Messaging;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -20,181 +18,30 @@ namespace RevitAIProject.Services
     {
         private readonly HttpClient _httpClient;
         private const string OllamaUrl = "http://localhost:11434/api/generate";
+        private readonly IExperienceRepository _experienceRepo;
+        private readonly ISessionContext _sessionContext;
 
-        public OllamaService()
+        public OllamaService(IExperienceRepository experienceRepo, ISessionContext sessionContext)
         {
-            _httpClient = new HttpClient();
-            _httpClient.Timeout = TimeSpan.FromMinutes(5);
+            _httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+            _experienceRepo = experienceRepo;
+            _sessionContext = sessionContext;
+
         }
 
-        private string GetSystemInstructions()
-        {
-            StringBuilder sb = new StringBuilder();
-
-            // 1. ROLE & CORE MISSION (Без изменений)
-            sb.Append("### ROLE: Revit 2019 AI Automation Agent (C# 7.3 / Revit API). ");
-            sb.Append("### CORE MISSION: Convert user intent into Revit API Commands (Actions or Queries). ");
-
-            // 2. ПРАВИЛО ВНУТРЕННЕГО ПЕРЕВОДА & КАТЕГОРИЙ (Без изменений)
-            sb.Append("### STEP 0: MANDATORY CATEGORY PROTOCOL. ");
-            sb.Append("1. Before any analysis, ALWAYS translate the user's message into ENGLISH in your thought process. ");
-            sb.Append("2. ALWAYS translate the user's element request into English (e.g., 'окна' -> 'Windows'). ");
-            sb.Append("3. For 'categoryName', ALWAYS use the official Revit BuiltInCategory string starting with 'OST_'. ");
-            sb.Append("Example: 'walls' -> 'OST_Walls', 'windows' -> 'OST_Windows', 'doors' -> 'OST_Doors'. ");
-
-            // 3. ПРАВИЛО ОБРАБОТКИ ПУСТОГО РЕЗУЛЬТАТА (Без изменений)
-            sb.Append("### STEP 1: EMPTY RESULTS PROTOCOL. ");
-            sb.Append("If the 'SYSTEM_REPORT' states that 0 elements were found, YOU MUST NOT REPEAT THE SEARCH COMMAND. ");
-            sb.Append("Instead, provide a final text response in the user's language stating that nothing was found. ");
-
-            // 4. STRICT FORMATTING (Без изменений)
-            sb.Append("### RESPONSE FORMAT RULES: ");
-            sb.Append("1. Respond ONLY with a raw JSON object. No markdown code blocks (```json). ");
-            sb.Append("2. PROHIBITED: No conversational preambles (e.g., 'Sure!', 'I will help'). ");
-            sb.Append("3. Detect user language. Write 'message' in the SAME language as the user. ");
-
-            // 5. ХРАНИЛИЩЕ ДАННЫХ (ОБНОВЛЕНО: Железобетонное правило 1:1)
-
-            sb.Append("### SESSION STORAGE (Context Management): ");            
-
-            sb.Append("1. 'storage': Use unique keys starting with '$q' (e.g., '$q1', '$q2'). ");
-            sb.Append("MANDATORY: When calling CreateGlobalQuery or CreateViewQuery, you MUST ALWAYS provide the search_ai_name(e.g., '$q1') immediately in the parameters of that action. NEVER leave Create...Query parameters empty. The name in Create must match the name in the following ByCategoryQuery.");
-            sb.Append("2. **NAMED SESSIONS**: Each '$q' key is an independent search session. ");
-            sb.Append("3. You can maintain multiple active searches (e.g., $q1 for Windows, $q2 for Walls) simultaneously without interference. ");
-            sb.Append("4. To act on found elements, set 'target_ai_name' to the corresponding key (e.g., '$q1'). ");
-
-            // 6. SEARCH ALGORITHM (ОБНОВЛЕНО: Логика выбора Scope)
-            sb.Append("### SEARCH ALGORITHM (THE FUNNEL): ");
-            sb.Append("1. **HYBRID SEARCH (Fastest)**: For simple requests, use 'CreateGlobalQuery' or 'CreateViewQuery' with 'categoryName' and 'search_ai_name' in a SINGLE action. ");
-            sb.Append("2. **CHAINED SEARCH (Detailed)**: Use the chain [Create...Query] -> [ByCategoryQuery] -> [ByLevelQuery] ONLY if you need complex multi-stage filtering. ");
-            sb.Append("3. **CLASS vs CATEGORY**: Use 'className' for Revit Classes (e.g., 'Wall', 'WallType') and 'categoryName' for official 'OST_' categories. ");
-            sb.Append("4. **SPATIAL**: Use 'ByLevelQuery' for floor-based filtering. Call 'GetLevelsAction' first if Level IDs are unknown. ");
-
-            // 7. EXECUTION STRATEGY (ОБНОВЛЕНО: Шаблон для Multi-Search)
-            sb.Append("### EXECUTION STRATEGY: ");
-            sb.Append("1. [QUERIES]: For 'Find' or 'Count', use THE FUNNEL: [Create] -> [Filters]. ");
-            sb.Append("Example for two variables '$q': [CreateGlobal] -> [ByCategory(Walls, $q1)] -> [CreateActiveView] -> [ByCategory(Doors, $q2)]. ");
-
-
-            // Правило для действий: Create, Move, Delete
-            sb.Append("2. [ACTIONS]: Use Action commands for 'Create', 'Move', 'Delete', 'SelectElements'. ");
-            sb.Append("For new elements, use 'target_ai_name' with '$f' prefix (e.g., '$f1'). ");
-
-            // Правило для связок (Chaining): Поиск + Действие
-            sb.Append("3. [CHAINING]: You MUST chain search and actions. ");
-            sb.Append("Example sequence: [CreateActiveViewQuery] -> [ByCategorySearchQuery] -> [MoveElementAction(target_ai_name: '$q1')]. ");
-
-            // Правило для пустой выборки (Selection)
-            sb.Append("4. [SELECTION]: If 'target_ai_name' is empty, the action applies to the user's current manual selection in Revit UI. ");
-
-            // 8. ДИНАМИЧЕСКИЕ КОМАНДЫ (Reflection-based)
-            sb.Append("### AVAILABLE COMMANDS & PARAMETERS: ");
-            sb.Append(GetDynamicCommandsDescription());
-
-            // 8. ПРАВИЛА ПАРАМЕТРОВ
-            sb.Append("### PARAMETER RULES: ");
-            sb.Append("1. **CATEGORY NAMING**: Always use 'OST_' prefix for 'categoryName' (e.g., 'OST_Walls'). ");
-            sb.Append("2. **CLASS NAMING**: NEVER use 'OST_' for 'className'. Use pure Revit API class names (e.g., 'FamilyInstance', 'View', 'Wall'). ");
-            sb.Append("3. **UNITS**: Always include units for 'double' types (e.g., '300mm', '10ft'). ");
-            sb.Append("4. **FILTERS**: 'filterJson' must be a double-escaped JSON string. ");
-
-            // 10. ФОРМАТ ОТВЕТА (Strict JSON Schema)
-            sb.Append("### RESPONSE SCHEMA: ");
-            sb.Append("{ ");
-            sb.Append("  \"message\": \"Description in user language\", ");
-            sb.Append("  \"actions\": [ ");
-            sb.Append("    { \"action\": \"CommandName\", \"params\": { \"categoryName\": \"OST_Walls\", \"search_ai_name\": \"$q1\" } } ");
-            sb.Append("  ] ");
-            sb.Append("} ");
-
-            return sb.ToString();
-        }
-
-        private string GetExamples()
-        {
-            StringBuilder sb = new StringBuilder();
-
-            // Example 1: Basic Counting (Уточняем комментарий)
-            sb.AppendLine("User: 'How many walls are in the project?'");
-            sb.AppendLine(@"Response: { ""message"": ""Counting all walls in the project..."", ""actions"": [ 
-{ ""action"": ""CreateGlobalQuery"" }, 
-{ ""action"": ""ByCategoryQuery"", ""categoryName"": ""OST_Walls"", ""search_ai_name"": ""$q1"" } 
-] }");
-            // Example 1.1: Basic Counting (Уточняем комментарий)
-            sb.AppendLine("User: 'How many floors are there in the view and wall types in the project?'");
-            sb.AppendLine(@"Response: { ""message"": ""Counting floors in the view and the types of walls in the project..."", ""actions"": [ 
-{ ""action"": ""CreateActiveViewQuery"" }, 
-{ ""action"": ""ByCategoryQuery"", ""categoryName"": ""OST_Floors"", ""search_ai_name"": ""$q1"" } 
-{ ""action"": ""CreateGlobalQuery"" }, 
-{ ""action"": ""ByClassQuery"", ""className"": ""WallType"", ""search_ai_name"": ""$q2"" } 
-] }");
-
-            // Example 2: Filtering by Level (Показываем осознанный выбор InitActiveView)
-            sb.AppendLine("User: 'Find all doors on Level 1'");
-            sb.AppendLine(@"Response: { ""message"": ""Identifying Level 1 and searching on current view."", ""actions"": [ 
-{ ""action"": ""GetLevelsAction"" }, 
-{ ""action"": ""CreateActiveViewQuery"" }, 
-{ ""action"": ""ByCategoryQuery"", ""categoryName"": ""OST_Doors"" }, 
-{ ""action"": ""ByLevelQuery"", ""levelIdString"": ""REPLACE_WITH_LEVEL_ID_FROM_RESULT"", ""search_ai_name"": ""$q1"" } 
-] }");
-
-            // Example 3: Complex Filtering (Funnel + Parameter JSON)
-            sb.AppendLine("User: 'Find 300mm walls and delete them'");
-            sb.AppendLine(@"Response: { ""message"": ""Finding 300mm walls to delete them."", ""actions"": [ 
-        { ""action"": ""CreateGlobalQuery"" }, 
-        { ""action"": ""ByCategoryQuery"", ""categoryName"": ""OST_Walls"" }, 
-        { ""action"": ""ByParamJsonQuery"", ""filterJson"": ""[{\""p\"":\""Width\"",\""o\"":\""equals\"",\""v\"":\""300\""}]"", ""search_ai_name"": ""$q1"" }, 
-        { ""action"": ""DeleteElementsAction"", ""target_ai_name"": ""$q1"" } 
-    ] }");
-
-            // Example 4: Creation with Naming ($f1)
-            sb.AppendLine("User: 'Create a floor with 500mm offset'");
-            sb.AppendLine(@"Response: { ""message"": ""Creating a new floor ($f1) with 500mm offset."", ""actions"": [ 
-        { ""action"": ""CreateFloorAction"", ""offset"": 500, ""target_ai_name"": ""$f1"" } 
-    ] }");
-
-            // Example 5: Chaining (Create + Move)
-            sb.AppendLine("User: 'Create a floor and move it left by 1 meter'");
-            sb.AppendLine(@"Response: { ""message"": ""Creating floor ($f1) and moving it."", ""actions"": [ 
-        { ""action"": ""CreateFloorAction"", ""target_ai_name"": ""$f1"" }, 
-        { ""action"": ""MoveElementAction"", ""target_ai_name"": ""$f1"", ""dx"": -1000, ""dy"": 0, ""dz"": 0 } 
-    ] }");
-
-            // Example 6: Selection-based Action
-            sb.AppendLine("User: 'Move selected elements up by 200mm'");
-            sb.AppendLine(@"Response: { ""message"": ""Moving your current selection up."", ""actions"": [ 
-        { ""action"": ""MoveElementAction"", ""target_ai_name"": """", ""dx"": 0, ""dy"": 0, ""dz"": 200 } 
-    ] }");
-
-            // НОВЫЙ Example 7: Множественный поиск (Демонстрация INDEPENDENT CHAINS)
-            // Это самый важный пример для твоей текущей задачи!
-            sb.AppendLine("User: 'Count all windows on this view and all doors in the project'");
-            sb.AppendLine(@"Response: { ""message"": ""Counting windows on view and doors globally."", ""actions"": [ 
-{ ""action"": ""CreateActiveViewQuery"" }, 
-{ ""action"": ""ByCategoryQuery"", ""categoryName"": ""OST_Windows"", ""search_ai_name"": ""$q1"" },
-{ ""action"": ""CreateGlobalQuery"" }, 
-{ ""action"": ""ByCategoryQuery"", ""categoryName"": ""OST_Doors"", ""search_ai_name"": ""$q2"" } 
-] }");
-
-            return sb.ToString();
-        }
-
-        public async Task<AiResponse> GetAiResponseAsync(string userMessage, CancellationToken ct)
+        public async Task<AiResponse> GetAiResponseAsync(string userMessage, ISessionContext sessionContext, CancellationToken ct)
         {
             try
             {
-                StringBuilder fullPrompt = new StringBuilder();
-
-                fullPrompt.Append(GetSystemInstructions());
-                fullPrompt.Append("\n\n### EXAMPLES:\n");
-                fullPrompt.Append(GetExamples());
-                fullPrompt.Append("\n\n### USER REQUEST:\n");
-                fullPrompt.Append(userMessage);
+                string fullPrompt = GetSystemInstructions() +
+                                    GetLearnedInstructions() +
+                                    GetExamples() +
+                                    "\n\n### USER REQUEST:\n" + userMessage;
 
                 var requestData = new
                 {
                     model = "qwen2.5:7b",
-                    prompt = fullPrompt.ToString(),
+                    prompt = fullPrompt,
                     format = "json",
                     stream = false,
                     options = new { temperature = 0.0 }
@@ -203,120 +50,199 @@ namespace RevitAIProject.Services
                 string jsonPayload = JsonConvert.SerializeObject(requestData);
                 StringContent content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
-                // Передаем токен отмены в POST запрос
                 HttpResponseMessage response = await _httpClient.PostAsync(OllamaUrl, content, ct);
                 response.EnsureSuccessStatusCode();
 
-                // Передаем токен в чтение контента
                 string responseBody = await response.Content.ReadAsStringAsync();
-
-                CleanJson(responseBody);
-
                 JObject ollamaJson = JObject.Parse(responseBody);
                 string rawAiResponse = ollamaJson["response"]?.ToString() ?? "{}";
 
-                // В продакшене MessageBox лучше убрать или вызывать через диспетчер, 
-                // так как это может заблокировать поток.
                 Debug.WriteLine(rawAiResponse, "AI Raw Output");
-
                 return ParseToAiResponse(rawAiResponse);
-            }
-            catch (OperationCanceledException)
-            {
-                // Возвращаем пустой ответ или уведомление о прерывании
-                return new AiResponse
-                {
-                    Message = "Генерация была прервана пользователем.",
-                    Actions = new List<Logic.IRevitLogic>()
-                };
             }
             catch (Exception ex)
             {
-                return new AiResponse
-                {
-                    Message = $"Ошибка при обращении к ИИ: {ex.Message}",
-                    Actions = new List<Logic.IRevitLogic>()
-                };
+                return new AiResponse { Message = $"Error: {ex.Message}", Actions = new List<IRevitLogic>() };
             }
         }
-
-        private string CleanJson(string raw)
+        private string GetSystemInstructions()
         {
-            // Убираем Markdown блоки, если они просочились
-            raw = raw.Replace("```json", "").Replace("```", "").Trim();
-            int start = raw.IndexOf('{');
-            int end = raw.LastIndexOf('}');
-            if (start != -1 && end > start) return raw.Substring(start, end - start + 1);
-            return raw;
+            // Динамические данные из живой сессии
+            string currentVars = _sessionContext.Storage.Keys.Any()
+                ? string.Join(", ", _sessionContext.Storage.Keys)
+                : "None (Storage is empty)";
+
+            string lastReports = string.Join(" | ", _sessionContext.GetAiMessages());
+
+            return "### ROLE: Revit 2019 AI Automation Agent (C# 7.3 / Revit API).\n" +
+                   "### CORE MISSION: Convert user intent into Revit API Commands.\n\n" +
+
+                   "### STEP 1: CONTEXT AWARENESS (LIVE DATA):\n" +
+                   "- CURRENT SESSION STORAGE: [" + currentVars + "]\n" +
+                   "- LAST SYSTEM FEEDBACK: " + (string.IsNullOrEmpty(lastReports) ? "System Ready" : lastReports) + "\n\n" +
+
+                   "### STEP 2: MANDATORY CATEGORY PROTOCOL:\n" +
+                   "1. Translate intent to ENGLISH. For 'category_name', use BuiltInCategory string starting with 'OST_'.\n" +
+
+                   "### STEP 3: RESPONSE FORMAT RULES:\n" +
+                   "1. Respond ONLY with raw JSON. No markdown. No preambles.\n" +
+                   "2. 'message' in user language. All other keys strictly as defined.\n" +
+
+                   "### STEP 4: JSON STRUCTURE:\n" +
+                   "Always use: { \"message\": \"...\", \"actions\": [ { \"action\": \"...\", \"Parameters\": {...} } ] }\n" +
+
+                   "### STEP 5: VARIABLE NAMING CONVENTION:\n" +
+                   "1. 'assign_ai_name': For 'search_elements' results. Use '$a1', '$a2'.\n" +
+                   "2. 'assign_ai_name': When CREATING new elements. Use '$a1', '$a2'.\n" +
+                   "3. 'target_ai_name': To reference '$f' from STORAGE. If empty, system uses manual selection.\n" +
+
+                   "### STEP 8: ADVANCED SEARCH ENGINE (search_elements):\n" +
+                    "1. MANDATORY: Start with Scope: 'scope_project', 'scope_active_view' or 'scope_selection'.\n" +
+                    "2. SELECTION: If user says 'this', 'selected' or 'highlighted', use 'scope_selection'.\n" +
+                    "3. CHAINING: If you search to delete/modify, the 'assign_ai_name' (e.g. $a1) MUST be passed to the next action's 'target_ai_name'.\n" + 
+                    "4. SEARCH RULE: Always search for different categories into DIFFERENT variables (e.g., Windows to \r\na2) to avoid manual filtering in C#."+
+
+                   "### STEP 9: EMERGENCY DYNAMIC CODE (V1.8.3 - STRICT):\n" +
+"1. EXECUTION CONTEXT: You are writing ONLY the body of a C# method. No namespaces, no classes.\n" +
+"2. PRE-DECLARED: Variables 'doc', 'uidoc', 'ids' (List<ElementId>), and 'context' ALREADY EXIST. Do NOT declare them.\n" +
+"3. NO TRANSACTIONS: A Transaction is ALREADY STARTED in the parent Action. DO NOT use 'new Transaction' or 't.Start()'. This will CRASH the system.\n" +
+"4. ASSIGNING: To save created elements for later, use: context.Storage.Store(AssignAiName, createdList);\n" +
+"5. EXAMPLE (Wall): \n" +
+"   Level lvl = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().First();\n" +
+"   Line line = Line.CreateBound(new XYZ(0,0,0), new XYZ(40,40,0));\n" +
+"   Wall.Create(doc, line, new FilteredElementCollector(doc).OfClass(typeof(WallType)).FirstElementId(), lvl.Id, 10, 0, false, false);"
+
+ +
+
+                   GetDynamicCommandsDescription() + "\n\n";
+                   
+        }
+
+        private string GetExamples()
+        {
+            return "[EXAMPLES]\n" +
+                // Case 1: Multiple entities -> Default to View
+                "User: 'Find windows and walls'\n" +
+                "Response: { \"message\": \"Searching for windows and walls on current view.\", \"actions\": [ " +
+                "{ \"action\": \"search_elements\", \"Parameters\": { \"assign_ai_name\": \"$a1\", \"filters\": [ { \"Kind\": \"scope_active_view\" }, { \"Kind\": \"category\", \"Value\": \"OST_Windows\" } ] } }, " +
+                "{ \"action\": \"search_elements\", \"Parameters\": { \"assign_ai_name\": \"$q2\", \"filters\": [ { \"Kind\": \"scope_active_view\" }, { \"Kind\": \"category\", \"Value\": \"OST_Walls\" } ] } } ] }\n" +
+
+                // Case 2: Mixed context
+                "User: 'Find doors on view and walls in project'\n" +
+                "Response: { \"message\": \"Searching doors on view and walls globally.\", \"actions\": [ " +
+                "{ \"action\": \"search_elements\", \"Parameters\": { \"assign_ai_name\": \"$a1\", \"filters\": [ { \"Kind\": \"scope_active_view\" }, { \"Kind\": \"category\", \"Value\": \"OST_Doors\" } ] } }, " +
+                "{ \"action\": \"search_elements\", \"Parameters\": { \"assign_ai_name\": \"$a2\", \"filters\": [ { \"Kind\": \"scope_project\" }, { \"Kind\": \"category\", \"Value\": \"OST_Walls\" } ] } } ] }\n" +
+
+                // Case 3: Chaining (Search + Move)
+                "User: 'Find walls and move them up 500mm'\n" +
+                "Response: { \"message\": \"Finding walls and moving them.\", \"actions\": [ " +
+                "{ \"action\": \"search_elements\", \"Parameters\": { \"assign_ai_name\": \"$a1\", \"filters\": [ { \"Kind\": \"scope_active_view\" }, { \"Kind\": \"category\", \"Value\": \"OST_Walls\" } ] } }, " +
+                "{ \"action\": \"move_elements\", \"Parameters\": { \"target_ai_name\": \"$a1\", \"dz\": \"500mm\" } } ] }\n" +
+
+                // Case 4: Creation with Naming ($f1)
+                "User: 'Создай плиту со смещением 500мм'\n" +
+                "Response: { \"message\": \"Создаю плиту ($a1) со смещением 500мм\", \"actions\": [ " +
+                "{ \"action\": \"create_floor\", \"Parameters\": { \"assign_ai_name\": \"$a1\", \"offset\": \"500mm\" } } ] }\n" +
+
+                // Case 5: Selection-based Action
+                "User: 'Подними выделенное на 20 футов'\n" +
+                "Response: { \"message\": \"Поднимаю выделенное на 20 футов.\", \"actions\": [ " +
+                "{ \"action\": \"move_elements\", \"Parameters\": { \"target_ai_name\": \"\", \"dz\": \"20ft\" } } ] }\n" +
+                "[/EXAMPLES]";
         }
 
         private string GetDynamicCommandsDescription()
         {
-            var sb = new StringBuilder();
+            StringBuilder sb = new StringBuilder();
 
-            // --- СЕКЦИЯ 1: КОМАНДЫ (Actions & Queries из Примеров 1 и 2) ---
-            sb.AppendLine("### AVAILABLE COMMANDS (JSON 'actions' list):");
-            var commandTypes = Assembly.GetExecutingAssembly().GetTypes()
-                .Where(t => t.IsClass && !t.IsAbstract && t.GetCustomAttribute<Logic.AiParamAttribute>() != null
-                       && !t.Name.Contains("SessionContext")); // Исключаем сам контекст из списка команд
-
-            foreach (var type in commandTypes)
+            // 1. Описание фильтров для поиска (Kind)
+            sb.Append("\n### 1. SEARCH FILTERS (Inside 'filters' array): ");
+            var filterTypes = TypeRegistry.GetFilterTypes();
+            foreach (var entry in filterTypes)
             {
-                var classAttr = type.GetCustomAttribute<Logic.AiParamAttribute>();
-                string category = typeof(Logic.Queries.IRevitQuery).IsAssignableFrom(type) ? "[QUERY]" : "[ACTION]";
-
-                sb.AppendLine($"- **{classAttr.Name}** {category}: {classAttr.Description}");
-
-                // Собираем параметры свойств (например, offset из Примера 1)
-                var props = type.GetProperties().Where(p => p.GetCustomAttribute<Logic.AiParamAttribute>() != null);
-                foreach (var prop in props)
-                {
-                    var pAttr = prop.GetCustomAttribute<Logic.AiParamAttribute>();
-                    sb.AppendLine($"  * {pAttr.Name} ({prop.PropertyType.Name}): {pAttr.Description}");
-                }
-                sb.AppendLine();
+                var attr = entry.Value.GetCustomAttribute<AiParamAttribute>();
+                // Используем entry.Key, так как он уже нормализован в TypeRegistry
+                sb.Append($"- Kind: {entry.Key} (Description: {attr?.Description ?? "No description"}). ");
             }
 
-            // --- СЕКЦИЯ 2: ХРАНИЛИЩЕ (SessionContext из Примера 3) ---
-            sb.AppendLine("### DATA STORAGE (Where results are saved):");
-            var contextProps = typeof(Services.SessionContext).GetProperties()
-                .Where(p => p.GetCustomAttribute<Logic.AiParamAttribute>() != null);
+            // 2. Описание глобальных действий и их параметров
+            sb.Append("\n### 2. GLOBAL ACTIONS: ");
+            var logicTypes = TypeRegistry.GetLogicTypes();
 
-            foreach (var prop in contextProps)
+            // Distinct, так как один класс может быть зарегистрирован под разными ключами
+            foreach (var type in logicTypes.Values.Distinct())
             {
-                var attr = prop.GetCustomAttribute<Logic.AiParamAttribute>();
-                sb.AppendLine($"- {attr.Name}: {attr.Description}");
+                var classAttr = type.GetCustomAttribute<AiParamAttribute>();
+                if (classAttr == null) continue;
+
+                // Имя команды (например, create_floor) и её описание
+                sb.Append($"\n- Action: '{classAttr.Name}' (Description: {classAttr.Description}). ");
+                sb.Append("Parameters: ");
+
+                // Собираем только свойства, помеченные [AiParam]
+                var props = type.GetProperties()
+                    .Select(p => p.GetCustomAttribute<AiParamAttribute>())
+                    .Where(a => a != null);
+
+                foreach (var pAttr in props)
+                {
+                    // Используем pAttr.Name — это то, что ИИ должен написать в JSON
+                    sb.Append($"{pAttr.Name}, ");
+                }
             }
 
             return sb.ToString();
         }
 
+        private string GetLearnedInstructions()
+        {
+            var records = _experienceRepo.GetLearningSet(10);
+            if (records == null || !records.Any()) return "";
+
+            StringBuilder sb = new StringBuilder("\n### LEARNED PATTERNS:\n");
+            foreach (var r in records)
+            {
+                string status = r.Rating >= 1 ? "STRICTLY FOLLOW" : "AVOID";
+                sb.AppendLine($"{status}: Request '{r.UserPrompt}' -> JSON: {r.AiJson}");
+            }
+            return sb.ToString();
+        }
+
         private AiResponse ParseToAiResponse(string rawJson)
         {
-            var result = new AiResponse { Message = "", Actions = new List<Logic.IRevitLogic>() };
+            // Сохраняем сырой JSON для истории/обучения
+            var result = new AiResponse { RawJson = rawJson, Actions = new List<IRevitLogic>() };
+
             try
             {
                 string json = CleanJson(rawJson);
                 JObject data = JObject.Parse(json);
 
-                result.Message = data.SelectToken("$.message")?.ToString() ?? "Processing...";
+                // Извлекаем сообщение для пользователя
+                result.Message = data["message"]?.ToString() ?? "Processing AI Intent...";
 
-                var actionsArray = data.SelectToken("$.actions") as JArray;
-                if (actionsArray != null)
+                if (data["actions"] is JArray actions)
                 {
-                    foreach (JObject token in actionsArray)
+                    // Здесь нам нужен доступ к текущему контексту сессии (SessionContext)
+                    // Предположим, он доступен через поле класса _sessionContext
+                    foreach (var item in actions)
                     {
-                        // Извлекаем имя экшена
-                        string actionName = (token["action"] ?? token["Action"] ?? token["name"])?.ToString();
+                        if (!(item is JObject actionObj)) continue;
 
-                        // ИСПРАВЛЕНИЕ: Если ИИ прислал плоский JSON, передаем сам 'token'.
-                        // Если прислал вложенный, берем 'params'.
-                        JToken parameters = token["params"] ?? token["Params"] ?? token;
+                        // Извлекаем имя экшена (поддерживаем разные стили от ИИ)
+                        string name = (actionObj["action"] ?? actionObj["Action"] ?? actionObj["name"])?.ToString();
 
-                        var logicInstance = LogicFactory.CreateLogic(actionName, parameters);
+                        // Извлекаем блок параметров
+                        JToken pars = actionObj["Parameters"] ?? actionObj["params"] ?? actionObj["Params"] ?? actionObj;
 
-                        if (logicInstance != null)
-                            result.Actions.Add(logicInstance);
+                        // КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Передаем _sessionContext в фабрику
+                        // Теперь фабрика сама вызовет .SetContext() у созданной команды
+                        var logic = LogicFactory.CreateLogic(name, pars, _sessionContext);
+
+                        if (logic != null)
+                        {
+                            result.Actions.Add(logic);
+                        }
                     }
                 }
             }
@@ -324,7 +250,263 @@ namespace RevitAIProject.Services
             {
                 result.Message = "AI Response parsing failed: " + ex.Message;
             }
+
             return result;
         }
+
+        private string CleanJson(string raw)
+        {
+            raw = raw.Replace("```json", "").Replace("```", "").Trim();
+            int start = raw.IndexOf('{');
+            int end = raw.LastIndexOf('}');
+            return (start != -1 && end > start) ? raw.Substring(start, end - start + 1) : raw;
+        }
     }
+
+
+    /*public class OllamaService : IOllamaService
+    {
+        private readonly HttpClient _httpClient;
+        private const string OllamaUrl = "http://localhost:11434/api/generate";
+        private readonly IExperienceRepository _experienceRepo;
+
+        public OllamaService(IExperienceRepository experienceRepo)
+        {
+            _httpClient = new HttpClient();
+            _httpClient.Timeout = TimeSpan.FromMinutes(5);
+            _experienceRepo = experienceRepo;
+        }
+
+        public async Task<AiResponse> GetAiResponseAsync(string userMessage, CancellationToken ct)
+        {
+            try
+            {
+                string fullPrompt = GetSystemInstructions() +
+                           GetLearnedInstructions() + // <-- ПАМЯТЬ ТУТ
+                           GetExamples() +
+                           "\n\n### USER REQUEST:\n" + userMessage;
+
+                var requestData = new
+                {
+                    model = "qwen2.5:7b",
+                    prompt = fullPrompt,
+                    format = "json",
+                    stream = false,
+                    options = new { temperature = 0.0 }
+                };
+
+                string jsonPayload = JsonConvert.SerializeObject(requestData);
+                StringContent content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+
+                HttpResponseMessage response = await _httpClient.PostAsync(OllamaUrl, content, ct);
+                response.EnsureSuccessStatusCode();
+
+                string responseBody = await response.Content.ReadAsStringAsync();
+
+                JObject ollamaJson = JObject.Parse(responseBody);
+                string rawAiResponse = ollamaJson["response"]?.ToString() ?? "{}";
+
+                Debug.WriteLine(rawAiResponse, "AI Raw Output");
+
+                return ParseToAiResponse(rawAiResponse);
+            }
+            catch (OperationCanceledException)
+            {
+                return new AiResponse { Message = "Генерация прервана пользователем.", Actions = new List<IRevitLogic>() };
+            }
+            catch (Exception ex)
+            {
+                return new AiResponse { Message = $"Ошибка: {ex.Message}", Actions = new List<IRevitLogic>() };
+            }
+        }
+        private string GetSystemInstructions()
+        {
+            return "### ROLE: Revit 2019 AI Automation Agent (C# 7.3 / Revit API). " +
+                   "### CORE MISSION: Convert user intent into Revit API Commands. " +
+
+                   "### STEP 1: MANDATORY CATEGORY PROTOCOL. " +
+                   "1. Translate user intent to ENGLISH. " +
+                   "2. For 'categoryName', ALWAYS use BuiltInCategory string starting with 'OST_'. " +
+                   "### STEP 2: EMPTY RESULTS PROTOCOL. " +
+                   "1. If 'SYSTEM_REPORT' shows 0 elements, DO NOT repeat search. State results in user language. " +
+                   "### STEP 3: RESPONSE FORMAT RULES: " +
+                   "1. Respond ONLY with raw JSON. No markdown. 2. No preambles. 3. 'message' in user language. " +
+
+                   "### STEP 4: JSON STRUCTURE: "+
+                   "Always respond with a JSON object containing: " +
+                   "1. \"message\": A brief confirmation of what you are doing. " +
+                   "2. \"actions\": An array of command objects." +
+
+                   "### STEP 5: VARIABLE NAMING CONVENTION: " +
+                   "1. 'search_ai_name': Used ONLY in 'search_elements'. Represents FOUND elements. Format: '$q1', '$q2'. MUST be unique for each search within a session. " +
+                   "2. 'assign_ai_name': Used ONLY when CREATING new elements. Assigns a name to NEW objects. Format: '$f1', '$f2'. MUST be unique to avoid overwriting. " +
+                   "3. 'target_ai_name': Target for Actions (Move, Delete, etc.). Use '$q' for found or '$f' for created elements. " +
+
+                   "### STEP 6: ADVANCED SEARCH ENGINE (search_elements): " +
+                   "This is a pipeline search. 'filters' is a JArray of steps. " +
+                   "1. MANDATORY: Every search block MUST start with a Scope: 'scope_project' or 'scope_active_view'. " +
+                   "2. SCOPE LOGIC: Determine scope for EACH entity individually. " +
+                   "3. DEFAULT RULE: If context is unclear, ALWAYS use 'scope_active_view'. " +
+                   "4. SPECIFIC RULES: Use 'scope_project' ONLY if user says 'in project', 'everywhere', 'all'. " +
+                   "5. UNIQUE ID: Ensure 'search_ai_name' incrementing (e.g., use '$q2' if '$q1' is already defined). " +
+
+                   "### STEP 7: ACTION RULES: " +
+                   "1. Create: Needs 'categoryName', 'levelName' and 'assign_ai_name' (MUST be a new unique ID like '$f1'). " +
+                   "2. Modify/Delete: MUST use 'target_ai_name' from a previous UNIQUE '$q' or '$f'. " +
+                   "3. Units: Always include units (e.g. '300mm'). " +
+                   GetDynamicCommandsDescription() +
+                   "### STEP 7: RESPONSE SCHEMA: { \"message\": \"...\", \"actions\": [ { \"Action\": \"search_elements\", \"Parameters\": { \"search_ai_name\": \"$q1\", \"filters\": [...] } } ] }" +
+
+                   "### STEP 8: PARAMETER MAPPING PROTOCOL: " +
+                    "1. IGNORE C# property names (like 'TargetAiName'). " +
+                    "2. USE ONLY names defined in [AiParam] attributes (target_ai_name')"+
+                    "3. Use EXACT numbers from the request. If units (mm, in, ft) are provided, include them in the value string (e.g., '500mm'). "+
+
+                    "### STEP 9: EMERGENCY DYNAMIC CODE PROTOCOL (FALLBACK): If NO existing Action or Query matches the user request, you MUST use 'dynamic_code'. 1. NO WRAPPERS: Write ONLY the logic body. 2. CONTEXT: 'doc' and 'uidoc' are PRE-DECLARED. 3. TRANSACTIONS: Always use: using (Transaction t = new Transaction(doc, \"AI Task\")) { t.Start(); ... t.Commit(); } 4. BRACKETS: Ensure every '{' is closed by '}' BEFORE starting an 'else' block. 5. NEW LINES: Use '\n' for every semicolon (;) to prevent bracket confusion."
+                    ;
+        }
+        private string GetExamples()
+        {
+            return "[EXAMPLES] " +
+                // Case 1: Multiple entities, no scope mentioned -> Default to View
+                "User: 'Find windows and walls' " +
+                "AI: { \"message\": \"Searching for windows and walls on current view.\", \"actions\": [ " +
+                "{ \"Action\": \"search_elements\", \"Parameters\": { \"search_ai_name\": \"$q1\", \"filters\": [ { \"Kind\": \"scope_active_view\" }, { \"Kind\": \"category\", \"Value\": \"OST_Windows\" } ] } }, " +
+                "{ \"Action\": \"search_elements\", \"Parameters\": { \"search_ai_name\": \"$q2\", \"filters\": [ { \"Kind\": \"scope_active_view\" }, { \"Kind\": \"category\", \"Value\": \"OST_Walls\" } ] } } ] } " +
+
+                // Case 2: Mixed context (View and Project)
+                "User: 'Find doors on view and walls in project' " +
+                "AI: { \"message\": \"Searching doors on view and walls globally.\", \"actions\": [ " +
+                "{ \"Action\": \"search_elements\", \"Parameters\": { \"search_ai_name\": \"$q1\", \"filters\": [ { \"Kind\": \"scope_active_view\" }, { \"Kind\": \"category\", \"Value\": \"OST_Doors\" } ] } }, " +
+                "{ \"Action\": \"search_elements\", \"Parameters\": { \"search_ai_name\": \"$q2\", \"filters\": [ { \"Kind\": \"scope_project\" }, { \"Kind\": \"category\", \"Value\": \"OST_Walls\" } ] } } ] } " +
+
+                // Case 3: Explicit Global scope
+                "User: 'Select all windows in the building' " +
+                "AI: { \"message\": \"Selecting all windows in the entire project.\", \"actions\": [ " +
+                "{ \"action\": \"search_elements\", \"Parameters\": { \"search_ai_name\": \"$q1\", \"filters\": [ { \"Kind\": \"scope_project\" }, { \"Kind\": \"category\", \"Value\": \"OST_Windows\" } ] } } ] } " +
+                "[/EXAMPLES]" +
+
+                // Example 4: Chaining (Create + Move)
+                "User: 'Find all doors on Level 1' " + 
+                "Response: {  \"message\": \"Identifying Level 1 and searching on current view.\",  \"actions\": [  { \"action\": \"GetLevelsAction\" },  { \"action\": \"CreateActiveViewQuery\" },{  \"action\": \"search_elements\",  \" \"filter\": [ { \"Kind\": \"scope_active_view\" }, { \"Kind\": \"category\", \"Value\": ] } }  ] }" +
+
+                // Example 5: Creation with Naming ($f1)
+                "User:'Создай плиту со смещением 500 сантиметров' " +
+                "Response:{\"message\":\"Создаю плиту ($f1) со смещением 50 см\",\"actions\":[{\"action\":\"CreateFloor\",\"Parameters\":{\"assign_ai_name\":\"$f1\",\"offset\":\"500см\"}}]}" +            
+
+                // Example 6: Selection-based Action
+                "User: 'Подними выделенное на 20 футов' " +
+                "Response: { \"message\": \"Поднимаю выделенное на 20 футов.\", \"actions\": [ { \"action\": \"MoveElementAction\", \"target_ai_name\": \"\", \"dx\": 0, \"dy\": 0, \"dz\": 200ft } ] }" ;
+
+        }
+        private string GetDynamicCommandsDescription()
+        {
+            string desc = " ### 1. SEARCH FILTERS (Inside 'filters' array): ";
+            var filterTypes = TypeRegistry.GetFilterTypes();
+            foreach (var entry in filterTypes)
+            {
+                var attr = entry.Value.GetCustomAttribute<AiParamAttribute>();
+                desc += "- Kind: " + entry.Key + " (" + (attr?.Description ?? "") + "). ";
+            }
+
+            desc += " ### 2. GLOBAL ACTIONS: ";
+            var logicTypes = TypeRegistry.GetLogicTypes();
+            foreach (var type in logicTypes.Values.Distinct())
+            {
+                var classAttr = type.GetCustomAttribute<AiParamAttribute>();
+                if (classAttr == null) continue;
+                desc += "- " + classAttr.Name + ": " + classAttr.Description + ". ";
+                var props = type.GetProperties().Where(p => p.GetCustomAttribute<AiParamAttribute>() != null);
+                foreach (var p in props) desc += p.Name + ", ";
+            }
+            return desc;
+        }
+        private string GetLearnedInstructions()
+        {
+            var records = _experienceRepo.GetLearningSet(10); // Берем 10 последних уроков
+            if (records == null || !records.Any()) return "";
+
+            string learned = "\n### USER FEEDBACK & LEARNED PATTERNS (Reinforcement Learning):\n";
+
+            foreach (var record in records)
+            {
+                string confidence = "";
+                string prefix = "";
+
+                // Применяем твою шкалу вероятностей
+                switch (record.Rating)
+                {
+                    case 2: confidence = "Confidence: 80% (GOLD STANDARD)"; prefix = "FOLLOW THIS PATTERN:"; break;
+                    case 1: confidence = "Confidence: 60% (GOOD)"; prefix = "RECOMMENDED:"; break;
+                    case -1: confidence = "Confidence: 40% (SUBOPTIMAL)"; prefix = "CRITICIZED ATTEMPT:"; break;
+                    case -2: confidence = "Confidence: 20% (FAILING)"; prefix = "AVOID THIS LOGIC:"; break;
+                    default: continue; // Нейтральные (0) не шлем
+                }
+
+                learned += $"Request: '{record.UserPrompt}'\n";
+                learned += $"{prefix} {record.AiJson} ({confidence})\n\n";
+            }
+
+            learned += "INSTRUCTION: Use 'GOLD' patterns as priority and find alternatives for 'AVOID' patterns.\n";
+            return learned;
+        }
+        /// <summary>
+        /// Parses raw JSON from Ollama into an AiResponse object and preserves the original JSON for learning.
+        /// </summary>
+        private AiResponse ParseToAiResponse(string rawJson)
+        {
+            // Initializing the response and PRESERVING the raw input for the Experience Repository
+            var result = new AiResponse
+            {
+                Message = "",
+                Actions = new List<IRevitLogic>(),
+                RawJson = rawJson // <--- This ensures AiJson won't be null in your JSON file
+            };
+
+            try
+            {
+                string json = CleanJson(rawJson);
+                JObject data = JObject.Parse(json);
+
+                // Extract natural language message for the UI
+                result.Message = data.SelectToken("$.message")?.ToString() ?? "Processing...";
+
+                var actionsArray = data.SelectToken("$.actions") as JArray;
+                if (actionsArray != null)
+                {
+                    foreach (JToken token in actionsArray)
+                    {
+                        if (!(token is JObject actionObj)) continue;
+
+                        // Flexible action name matching (Action/action/name)
+                        string actionName = (actionObj["Action"] ?? actionObj["action"] ?? actionObj["name"])?.ToString();
+
+                        // Flexible parameters matching (Parameters/params/Params or root)
+                        JToken parameters = actionObj["Parameters"] ?? actionObj["params"] ?? actionObj["Params"] ?? actionObj;
+
+                        var logicInstance = LogicFactory.CreateLogic(actionName, parameters);
+                        if (logicInstance != null)
+                        {
+                            result.Actions.Add(logicInstance);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                result.Message = "AI Response parsing failed: " + ex.Message;
+                // Even if parsing fails partially, we still keep the RawJson for debugging/logging
+            }
+
+            return result;
+        }
+        private string CleanJson(string raw)
+        {
+            raw = raw.Replace("```json", "").Replace("```", "").Trim();
+            int start = raw.IndexOf('{');
+            int end = raw.LastIndexOf('}');
+            if (start != -1 && end > start) return raw.Substring(start, end - start + 1);
+            return raw;
+        }
+    }*/
 }

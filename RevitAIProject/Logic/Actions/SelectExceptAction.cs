@@ -13,9 +13,6 @@ namespace RevitAIProject.Logic.Actions
     {
         [AiParam("exclude_ai_name", Description = "The name of the memory object to be excluded (e.g. '$f1' or '$q1')")]
         public string ExcludeAiName { get; set; }
-
-        [AiParam("search_ai_name", Description = "The name of the search result to select (e.g. '$q1')")]
-        public string SearchAiName { get; set; }
         protected override void Execute(IRevitContext context)
         {
             // 1. Получаем ID объекта, который нужно исключить
@@ -35,24 +32,24 @@ namespace RevitAIProject.Logic.Actions
             }
 
             // Если не нашли по TargetAiName, пробуем SearchAiName
-            if (idsToSelect == null && !string.IsNullOrEmpty(SearchAiName))
-            {
+            //if (idsToSelect == null && !string.IsNullOrEmpty(SearchAiName))
+            /*{
                 context.Storage.StorageValue(SearchAiName, out idsToSelect);
-            }
+            }*/
 
             if (idsToSelect != null && idsToSelect.Count > 0)
             {
                 idsToSelect = idsToSelect.Except(idsToExclude).ToList();
 
                 context.UIDoc.Selection.SetElementIds(idsToSelect);
-                RegisterCreatedElement(context, idsToSelect);
+                RegisterCreatedElements(idsToSelect);
 
-                Report($"Elements {SearchAiName} were selected, Elements {ExcludeAiName} were excluded from selection", Services.RevitMessageType.AiReport);
+                Report($"Elements {AssignAiName} were selected, Elements {ExcludeAiName} were excluded from selection", Services.RevitMessageType.AiReport);
             }
             else
             {
                 // Логируем, какой именно ключ не был найден или был null
-                string missingKey = TargetAiName ?? SearchAiName ?? ExcludeAiName ?? "NULL_KEY";
+                string missingKey = TargetAiName ?? AssignAiName ?? ExcludeAiName ?? "NULL_KEY";
                 Debug.WriteLine($"Key '{missingKey}' not found or is null!", "SelectElementsAction Error");
             }
         }

@@ -13,6 +13,7 @@ namespace RevitAIProject.Services
         Ai,       // Ответы от нейросети ("AI: ...")
         User,      // Сообщения пользователя ("Вы: ...")
         AiReport,
-        Warning
+        Warning,
+        UserRating
     }
 }
